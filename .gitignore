@@ -1,0 +1,15 @@
+/.idea/
+/.vscode/
+/.serena/
+/target/
+**/target/
+**/node_modules/
+**/dist/
+*.log
+*.tmp
+*.swp
+.DS_Store
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo

@@ -1,0 +1,187 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
+
+:root {
+  color-scheme: light;
+  font-family: "IBM Plex Sans", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  background:
+    radial-gradient(circle at top left, rgba(255, 160, 122, 0.32), transparent 28%),
+    radial-gradient(circle at top right, rgba(43, 90, 255, 0.18), transparent 30%),
+    linear-gradient(180deg, #f7f1e4 0%, #f2ede5 45%, #ebe8df 100%);
+  color: #1f2430;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+}
+
+.pageShell {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 3rem 0 4rem;
+}
+
+.heroPanel {
+  position: relative;
+  overflow: hidden;
+  padding: 2.5rem;
+  border: 1px solid rgba(31, 36, 48, 0.08);
+  border-radius: 28px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.8), rgba(247, 241, 228, 0.72));
+  box-shadow: 0 24px 80px rgba(49, 56, 73, 0.14);
+}
+
+.heroPanel::after {
+  content: "";
+  position: absolute;
+  inset: auto -4rem -4rem auto;
+  width: 18rem;
+  height: 18rem;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(43, 90, 255, 0.16), rgba(255, 122, 89, 0.32));
+  filter: blur(16px);
+}
+
+.eyebrow,
+.sectionLabel {
+  margin: 0 0 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #d2512b;
+}
+
+.heroPanel h1 {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  max-width: 13ch;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(2.8rem, 5vw, 5.4rem);
+  line-height: 0.95;
+}
+
+.heroCopy {
+  position: relative;
+  z-index: 1;
+  max-width: 46rem;
+  margin: 1.4rem 0 0;
+  font-size: 1.08rem;
+  color: rgba(31, 36, 48, 0.86);
+}
+
+.heroBadges {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.6rem;
+}
+
+.heroBadges span {
+  padding: 0.65rem 1rem;
+  border: 1px solid rgba(31, 36, 48, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(10px);
+  font-size: 0.92rem;
+}
+
+.highlightGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.detailLayout {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.card {
+  padding: 1.5rem;
+  border: 1px solid rgba(31, 36, 48, 0.08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 18px 50px rgba(46, 49, 67, 0.08);
+}
+
+.card h2 {
+  margin: 0 0 0.7rem;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1.28rem;
+}
+
+.card p {
+  margin: 0;
+  color: rgba(31, 36, 48, 0.8);
+}
+
+.accentCard {
+  background: linear-gradient(180deg, rgba(255, 244, 232, 0.95), rgba(255, 255, 255, 0.9));
+}
+
+.roadmapCard {
+  background: linear-gradient(180deg, rgba(236, 241, 255, 0.94), rgba(255, 255, 255, 0.88));
+}
+
+.listBlock,
+.timeline {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.listBlock li,
+.timeline li {
+  color: rgba(31, 36, 48, 0.85);
+}
+
+@media (max-width: 920px) {
+  .highlightGrid,
+  .detailLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .heroPanel {
+    padding: 1.75rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .pageShell {
+    width: min(100% - 1rem, 100%);
+    padding-top: 1rem;
+  }
+
+  .heroPanel h1 {
+    max-width: none;
+    font-size: clamp(2.2rem, 13vw, 3.7rem);
+  }
+
+  .heroCopy {
+    font-size: 0.98rem;
+  }
+}
