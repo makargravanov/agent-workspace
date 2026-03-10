@@ -2,7 +2,7 @@
 
 \usepackage{diplom_style}
 
-\setcounter{secnumdepth}{4}
+\setcounter{secnumdepth}{2}
 \setcounter{tocdepth}{2}
 
 \begin{document}
@@ -22,12 +22,13 @@
 \clearpage
 \endgroup
 
-% Разделы технического задания
-\include{content/introduction.tex}
-\include{content/purpose.tex}
-\include{content/goal.tex}
-\include{content/terms.tex}
-\include{content/requirements.tex}
-\include{content/appendix.tex}
+% Разделы проектирования архитектуры
+\input{content/c4-model.tex}
+\clearpage
+\input{content/logical-architecture.tex}
+\clearpage
+\input{content/database-architecture.tex}
+\clearpage
+\input{content/design-patterns.tex}
 
 \end{document}
