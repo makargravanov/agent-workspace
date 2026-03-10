@@ -2,13 +2,13 @@
 
 \usepackage{diplom_style}
 
-\setcounter{secnumdepth}{4}
+\setcounter{secnumdepth}{2}
 \setcounter{tocdepth}{2}
 
 \begin{document}
  
 % Титульный лист
-\include{content/titlepage.tex}
+\input{content/titlepage.tex}
 
 % Содержание
 \begingroup
@@ -22,12 +22,10 @@
 \clearpage
 \endgroup
 
-% Разделы технического задания
-\include{content/introduction.tex}
-\include{content/purpose.tex}
-\include{content/goal.tex}
-\include{content/terms.tex}
-\include{content/requirements.tex}
-\include{content/appendix.tex}
+% Разделы спецификации
+\input{content/technology-stack.tex}
+\input{content/modules.tex}
+\input{content/input-output.tex}
+\input{content/testing.tex}
 
 \end{document}
