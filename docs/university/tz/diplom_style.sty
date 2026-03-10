@@ -26,19 +26,25 @@
 % Настройки заголовков
 \usepackage{textcase}
 \usepackage{titlesec}
-\titleformat*{\section}{\center\fontsize{14pt}{16pt}\bfseries\MakeUppercase}
-\titleformat*{\subsection}{\center\fontsize{14pt}{16pt}\bfseries}
-\titleformat*{\subsubsection}{\fontsize{14pt}{16pt}\bfseries}
+\titleformat{\section}[block]{\normalfont\fontsize{14pt}{16pt}\selectfont}{\thesection\quad}{0pt}{}
+\titleformat{\subsection}[block]{\normalfont\fontsize{14pt}{16pt}\selectfont}{\thesubsection\quad}{0pt}{}
+\titleformat{\subsubsection}[block]{\normalfont\fontsize{14pt}{16pt}\selectfont}{\thesubsubsection\quad}{0pt}{}
+\titleformat{\paragraph}[block]{\normalfont\fontsize{14pt}{16pt}\selectfont}{\theparagraph\quad}{0pt}{}
+\titlespacing*{\section}{12.5mm}{0pt}{0pt}
+\titlespacing*{\subsection}{12.5mm}{0pt}{0pt}
+\titlespacing*{\subsubsection}{12.5mm}{0pt}{0pt}
+\titlespacing*{\paragraph}{12.5mm}{0pt}{0pt}
 \titlelabel{\thetitle\quad}
+
+\newcommand{\headingtextsep}{\vspace{24pt}}
+\newcommand{\textheadingsep}{\par\vspace{24pt}}
 
 % Команда для специальных разделов (введение, обзор литературы, etc)
 % Не нумеруются в содержании, по уровню вложенности: 
 \newcommand{\specialsection}[1]{
     \phantomsection
-    % \bigskip\smallskip
-    % \hspace{-13.8mm}
-    \begin{center}\normalfont\fontsize{14pt}{16pt}\MakeTextUppercase{\textbf{#1}}\end{center}
-    % \par\bigskip
+    \begin{center}\normalfont\fontsize{14pt}{16pt}\selectfont #1\end{center}
+    \vspace{24pt}
     \normalfont\normalsize
     \addcontentsline{toc}{section}{#1}
 }
@@ -50,25 +56,61 @@
 
 % Настройки оглавления
 % Заголовок
-\AtBeginDocument{\renewcommand{\contentsname}{\fontsize{14pt}{16pt}\centering\textbf{СОДЕРЖАНИЕ}}}
+\renewcommand{\contentsname}{Содержание}
+\renewcommand{\cfttoctitlefont}{\normalfont\fontsize{14pt}{16pt}\selectfont}
+\renewcommand{\cftaftertoctitle}{}
 % Шрифты пунктов
 \renewcommand{\cftsecfont}{\normalfont}
 \renewcommand{\cftsecpagefont}{\normalfont}
+\renewcommand{\cftsubsecfont}{\normalfont}
+\renewcommand{\cftsubsecpagefont}{\normalfont}
 % След их точек и настройка шага
 \renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
+\renewcommand{\cftsubsecleader}{\cftdotfill{\cftdotsep}}
 \renewcommand\cftdotsep{1.5}
 % отступы
+\setlength{\cftbeforetoctitleskip}{24pt}
+\setlength{\cftaftertoctitleskip}{0pt}
 \setlength{\cftbeforesecskip}{4pt}
-\setlength{\cftsubsecindent}{2.68em}
+\setlength{\cftsecindent}{0pt}
+\setlength{\cftsubsecindent}{0pt}
+\setlength{\cftsecnumwidth}{4.5mm}
+\setlength{\cftsubsecnumwidth}{9mm}
+
+\makeatletter
+\newcommand{\printplaincontents}{\@starttoc{toc}}
+\makeatother
 
 
 % Число страниц
 \usepackage{lastpage}
+\usepackage{fancyhdr}
+\setlength{\headheight}{17pt}
+\newcommand{\mainpagestyle}{
+    \fancyhf{}
+    \fancyhead[C]{\normalfont\thepage}
+    \renewcommand{\headrulewidth}{0pt}
+    \renewcommand{\footrulewidth}{0pt}
+}
+\fancypagestyle{mainstyle}{\mainpagestyle}
+\fancypagestyle{plain}{\mainpagestyle}
+\pagestyle{mainstyle}
 
 
 % 
 \usepackage{enumitem}
-\setlist[itemize]{noitemsep, topsep=0pt}
+\newlength{\firstleveldashwidth}
+\newlength{\firstleveldashlabelwidth}
+\newlength{\firstleveldashspacewidth}
+\settowidth{\firstleveldashlabelwidth}{\textendash}
+\settowidth{\firstleveldashspacewidth}{\ }
+\setlength{\firstleveldashwidth}{\dimexpr\firstleveldashlabelwidth+\firstleveldashspacewidth\relax}
+\setlist[itemize,1]{label=\textendash, labelindent=\parindent, labelwidth=\firstleveldashlabelwidth, labelsep=\firstleveldashspacewidth, leftmargin=0pt, itemindent=\dimexpr\parindent+\firstleveldashwidth\relax, listparindent=0pt, itemsep=0pt, topsep=0pt, parsep=0pt, partopsep=0pt, align=left}
+\setlist[itemize,2]{label=\textendash, labelindent=25mm, labelwidth=1.5em, leftmargin=!, labelsep=0.5em, itemindent=0pt, itemsep=0pt, topsep=0pt, parsep=0pt, partopsep=0pt, align=left}
+\setlist[enumerate,1]{label=\arabic*), labelindent=25mm, labelwidth=1.5em, leftmargin=!, labelsep=0.5em, itemindent=0pt, itemsep=0pt, topsep=0pt, parsep=0pt, partopsep=0pt, align=left}
+\setlist[enumerate,2]{label=\arabic*), labelindent=25mm, labelwidth=1.5em, leftmargin=!, labelsep=0.5em, itemindent=0pt, itemsep=0pt, topsep=0pt, parsep=0pt, partopsep=0pt, align=left}
+
+\newcommand{\term}[2]{\noindent #1 -- #2\par}
 
 % Изображения
 % Нумерация в пределах раздела
