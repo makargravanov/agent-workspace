@@ -1,0 +1,33 @@
+\documentclass[a4paper,14pt]{extarticle}
+
+\usepackage{diplom_style}
+
+\setcounter{secnumdepth}{4}
+\setcounter{tocdepth}{2}
+
+\begin{document}
+ 
+% Титульный лист
+\include{content/titlepage.tex}
+
+% Содержание
+\begingroup
+\pagestyle{empty}
+\thispagestyle{empty}
+\begin{center}
+\normalfont\fontsize{14pt}{16pt}\selectfont Содержание
+\end{center}
+\vspace{24pt}
+\printplaincontents
+\clearpage
+\endgroup
+
+% Разделы технического задания
+\include{content/introduction.tex}
+\include{content/purpose.tex}
+\include{content/goal.tex}
+\include{content/terms.tex}
+\include{content/requirements.tex}
+\include{content/appendix.tex}
+
+\end{document}
