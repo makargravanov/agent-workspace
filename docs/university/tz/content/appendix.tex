@@ -1,11 +1,25 @@
 \appendix
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{А\arabic{figure}}
 
-\section[Приложение A]{Приложение A. LED Fade Arduino}
+\specialsection{Приложение А}
 
-\inputminted[fontsize=\small,breaklines]{arduino}{content/source/ex1.ino}
-\vspace{-1em}
+\begin{figure}[H]
+	\begin{center}
+		\includegraphics[width=0.82\textwidth]{diagrams/UML.jpg}
+		\caption{UML диаграмма юзкейсов}
+		\label{fig:appendix-uml}
+	\end{center}
+\end{figure}
 
-\section[Приложение Б]{Приложение Б. Листинг программы локализации}
+\clearpage
 
-\inputminted[fontsize=\small,breaklines]{python}{content/source/ex2.py}
-\vspace{-1em}
+\begin{figure}[p]
+	\begin{center}
+		\includegraphics[width=0.95\textwidth]{diagrams/DFD.jpg}
+		\caption{DFD диаграмма}
+		\label{fig:appendix-dfd}
+	\end{center}
+\end{figure}
+
+\clearpage
