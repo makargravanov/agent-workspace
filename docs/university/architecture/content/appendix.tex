@@ -6,9 +6,9 @@
 
 \begin{figure}[H]
 	\begin{center}
-		\includegraphics[width=0.82\textwidth]{diagrams/UML.jpg}
-		\caption{UML диаграмма юзкейсов}
-		\label{fig:appendix-uml}
+		\includegraphics[width=0.95\textwidth]{diagrams/c4-context.png}
+		\caption{Контекстная диаграмма системы}
+		\label{fig:appendix-c4-context}
 	\end{center}
 \end{figure}
 
@@ -16,10 +16,80 @@
 
 \begin{figure}[p]
 	\begin{center}
-		\includegraphics[width=0.95\textwidth]{diagrams/DFD.jpg}
-		\caption{DFD диаграмма}
-		\label{fig:appendix-dfd}
+		\includegraphics[width=0.95\textwidth]{diagrams/c4-containers.png}
+		\caption{Диаграмма контейнеров системы}
+		\label{fig:appendix-c4-containers}
 	\end{center}
 \end{figure}
 
 \clearpage
+
+\begin{figure}[p]
+	\begin{center}
+		\includegraphics[width=0.95\textwidth]{diagrams/c4-components.png}
+		\caption{Диаграмма компонентов API-сервиса}
+		\label{fig:appendix-c4-components}
+	\end{center}
+\end{figure}
+
+\clearpage
+
+\IfFileExists{diagrams/uml-logical-components.png}{
+\begin{figure}[p]
+	\begin{center}
+		\includegraphics[width=0.95\textwidth]{diagrams/uml-logical-components.png}
+		\caption{UML-диаграмма компонентов логической архитектуры}
+		\label{fig:appendix-uml-logical-components}
+	\end{center}
+\end{figure}
+
+\clearpage
+}{}
+
+\IfFileExists{diagrams/erd-database.png}{
+\begin{figure}[p]
+	\begin{center}
+		\includegraphics[width=0.98\textwidth]{diagrams/erd-database.png}
+		\caption{ERD-диаграмма базы данных}
+		\label{fig:appendix-erd-database}
+	\end{center}
+\end{figure}
+
+\clearpage
+}{}
+
+\IfFileExists{diagrams/pattern-repository.png}{
+\begin{figure}[p]
+	\begin{center}
+		\includegraphics[width=0.95\textwidth]{diagrams/pattern-repository.png}
+		\caption{UML-диаграмма класса для паттерна Repository}
+		\label{fig:appendix-pattern-repository}
+	\end{center}
+\end{figure}
+
+\clearpage
+}{}
+
+\IfFileExists{diagrams/pattern-adapter.png}{
+\begin{figure}[p]
+	\begin{center}
+		\includegraphics[width=0.95\textwidth]{diagrams/pattern-adapter.png}
+		\caption{UML-диаграмма класса для паттерна Adapter}
+		\label{fig:appendix-pattern-adapter}
+	\end{center}
+\end{figure}
+
+\clearpage
+}{}
+
+\IfFileExists{diagrams/pattern-strategy.png}{
+\begin{figure}[p]
+	\begin{center}
+		\includegraphics[width=0.95\textwidth]{diagrams/pattern-strategy.png}
+		\caption{UML-диаграмма класса для паттерна Strategy}
+		\label{fig:appendix-pattern-strategy}
+	\end{center}
+\end{figure}
+
+\clearpage
+}{}

@@ -1,0 +1,66 @@
+@startuml
+skinparam backgroundColor white
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName Times New Roman
+skinparam defaultTextAlignment center
+skinparam wrapWidth 220
+skinparam ArrowColor #444444
+skinparam PackageBorderColor #777777
+skinparam PackageFontStyle bold
+skinparam ComponentBorderColor #2f5597
+skinparam ComponentBackgroundColor #eaf2ff
+skinparam InterfaceBorderColor #666666
+
+title UML-диаграмма компонентов логической архитектуры системы "Контур"
+
+package "Пользовательский интерфейс" {
+  component "Web UI\n(React + TypeScript)" as UI
+}
+
+package "Бизнес-логика" {
+  component "Application Core" as AppCore
+  component "Task & Knowledge\nOrchestrator" as Workflow
+}
+
+package "Сервис уведомлений" {
+  component "Notification Service" as Notify
+}
+
+package "Слой данных" {
+  component "Repository Layer" as RepoLayer
+  database "PostgreSQL" as Db
+}
+
+interface "IApplicationFacade" as IApplicationFacade
+interface "INotificationPort" as INotificationPort
+interface "IRepositoryPort" as IRepositoryPort
+
+UI --> IApplicationFacade : использует
+IApplicationFacade - AppCore
+
+AppCore --> Workflow : координирует
+AppCore --> INotificationPort : отправляет события
+AppCore --> IRepositoryPort : читает и изменяет данные
+
+INotificationPort - Notify
+IRepositoryPort - RepoLayer
+
+RepoLayer --> Db : SQL
+Notify --> AppCore : статус доставки
+
+note right of AppCore
+Управляет прикладными сценариями:
+- задачи
+- документы
+- заметки
+- рабочий контекст
+end note
+
+note right of RepoLayer
+Инкапсулирует доступ
+к сущностям предметной области
+и поисковым индексам
+end note
+
+@enduml

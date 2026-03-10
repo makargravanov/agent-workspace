@@ -1,0 +1,213 @@
+@startuml
+hide circle
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Times New Roman
+skinparam linetype ortho
+skinparam wrapWidth 220
+skinparam ranksep 90
+skinparam nodesep 60
+
+title ERD-диаграмма базы данных системы "Контур"
+
+entity "Workspace" as Workspace {
+  * id : uuid
+  --
+  slug : varchar
+  name : varchar
+  created_at : timestamptz
+}
+
+entity "WorkspaceMember" as WorkspaceMember {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  external_subject : varchar
+  display_name : varchar
+  role : varchar
+  status : varchar
+}
+
+entity "Project" as Project {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  slug : varchar
+  name : varchar
+  status : varchar
+  created_at : timestamptz
+}
+
+entity "TaskGroup" as TaskGroup {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  project_id : uuid <<FK>>
+  kind : varchar
+  title : varchar
+  status : varchar
+  priority : int
+}
+
+entity "Task" as Task {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  project_id : uuid <<FK>>
+  group_id : uuid <<FK>>
+  parent_task_id : uuid <<FK>>
+  title : varchar
+  status : varchar
+  priority : varchar
+  assignee_type : varchar
+  assignee_id : uuid
+}
+
+entity "TaskDependency" as TaskDependency {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  project_id : uuid <<FK>>
+  predecessor_task_id : uuid <<FK>>
+  successor_task_id : uuid <<FK>>
+  dependency_type : varchar
+  is_hard_block : bool
+}
+
+entity "Document" as Document {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  project_id : uuid <<FK>>
+  parent_document_id : uuid <<FK>>
+  slug : varchar
+  title : varchar
+  status : varchar
+  version : int
+}
+
+entity "Asset" as Asset {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  project_id : uuid <<FK>>
+  uploaded_by_member_id : uuid <<FK>>
+  file_name : varchar
+  media_type : varchar
+  storage_key : varchar
+}
+
+entity "Note" as Note {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  project_id : uuid <<FK>>
+  agent_session_id : uuid <<FK>>
+  kind : varchar
+  author_type : varchar
+  author_id : uuid
+}
+
+entity "Agent" as Agent {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  created_by_member_id : uuid <<FK>>
+  key : varchar
+  display_name : varchar
+  status : varchar
+}
+
+entity "AgentCredential" as AgentCredential {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  project_id : uuid <<FK>>
+  agent_id : uuid <<FK>>
+  issued_by_member_id : uuid <<FK>>
+  label : varchar
+  secret_prefix : varchar
+  scope_policy : text
+  status : varchar
+}
+
+entity "AgentSession" as AgentSession {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  project_id : uuid <<FK>>
+  agent_id : uuid <<FK>>
+  status : varchar
+  started_at : timestamptz
+  finished_at : timestamptz
+}
+
+entity "AgentSessionTask" as AgentSessionTask {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  project_id : uuid <<FK>>
+  agent_session_id : uuid <<FK>>
+  task_id : uuid <<FK>>
+  relation_type : varchar
+  created_at : timestamptz
+}
+
+entity "IntegrationConnection" as IntegrationConnection {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  project_id : uuid <<FK>>
+  provider : varchar
+  scope_kind : varchar
+  status : varchar
+}
+
+entity "AuditEvent" as AuditEvent {
+  * id : uuid
+  --
+  workspace_id : uuid <<FK>>
+  project_id : uuid <<FK>>
+  agent_session_id : uuid <<FK>>
+  actor_type : varchar
+  actor_id : uuid
+  entity_type : varchar
+  entity_id : uuid
+  event_type : varchar
+  occurred_at : timestamptz
+}
+
+Workspace ||--o{ WorkspaceMember : has
+Workspace ||--o{ Project : contains
+Workspace ||--o{ Agent : registers
+Workspace ||--o{ IntegrationConnection : owns
+
+WorkspaceMember ||--o{ Agent : creates
+WorkspaceMember ||--o{ AgentCredential : issues
+WorkspaceMember ||--o{ Asset : uploads
+
+Project ||--o{ TaskGroup : organizes
+Project ||--o{ Task : contains
+Project ||--o{ Document : stores
+Project ||--o{ Asset : stores
+Project ||--o{ Note : stores
+Project ||--o{ AgentSession : records
+Project |o--o{ AgentCredential : scopes
+Project |o--o{ IntegrationConnection : limits
+Project ||--o{ AuditEvent : records
+
+TaskGroup |o--o{ Task : groups
+Task |o--o{ Task : parent_of
+Task ||--o{ TaskDependency : predecessor
+Task ||--o{ TaskDependency : successor
+
+Document |o--o{ Document : nests
+
+Agent ||--o{ AgentCredential : uses
+Agent ||--o{ AgentSession : runs
+AgentSession |o--o{ Note : produces
+AgentSession ||--o{ AgentSessionTask : touches
+Task ||--o{ AgentSessionTask : appears_in
+AgentSession |o--o{ AuditEvent : emits
+
+@enduml

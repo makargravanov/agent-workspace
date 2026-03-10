@@ -1,0 +1,33 @@
+@startuml
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_TOP_DOWN()
+
+title Диаграмма контейнеров системы "Контур"
+
+Person(member, "Участник workspace", "Работает с задачами, документами и заметками")
+Person(owner, "Владелец / координатор", "Управляет проектами, участниками и агентами")
+Person(agentUser, "AI-агент", "Использует MCP-инструменты из IDE или CLI")
+
+System_Ext(github, "GitHub", "Issues, Pull Requests, commits и branches")
+System_Ext(authProvider, "Провайдер аутентификации", "GitHub OAuth или OIDC provider")
+System_Ext(assetStorage, "S3-compatible object storage", "Внешнее объектное хранилище файловых assets")
+
+System_Boundary(contourBoundary, "Система «Контур»") {
+    Container(webClient, "Web-клиент", "React + TypeScript + Vite", "Пользовательский интерфейс для работы с задачами, знаниями, файлами и администрированием")
+    Container(api, "API", "Rust + Axum", "Основная бизнес-логика, права доступа, аудит, поиск и интеграции")
+    Container(mcpBridge, "MCP bridge", "Rust utility", "Предоставляет агентам MCP-интерфейс и проксирует запросы в API")
+    ContainerDb(database, "PostgreSQL", "PostgreSQL + pgvector", "Каноничные данные, связи между сущностями, аудит и embeddings")
+}
+
+Rel(member, webClient, "Работает с проектным контекстом", "HTTPS")
+Rel(owner, webClient, "Управляет workspace и интеграциями", "HTTPS")
+Rel(agentUser, mcpBridge, "Получает контекст и выполняет команды", "MCP")
+Rel(webClient, api, "Вызывает прикладное API", "REST / JSON, HTTPS")
+Rel(mcpBridge, api, "Проксирует MCP-инструменты", "REST / JSON, HTTPS")
+Rel(api, database, "Читает и записывает доменные данные", "SQL")
+Rel(api, assetStorage, "Сохраняет и выдает assets", "S3 API")
+Rel(api, github, "Синхронизирует внешние артефакты", "REST API / Webhook")
+Rel(api, authProvider, "Аутентифицирует пользователей", "OAuth 2.0 / OIDC")
+
+@enduml
