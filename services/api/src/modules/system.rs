@@ -1,6 +1,8 @@
 use axum::{routing::get, Json, Router};
 use serde::Serialize;
 
+use crate::state::AppState;
+
 const DOMAIN_MODULES: &[&str] = &[
     "auth",
     "workspace-core",
@@ -31,11 +33,11 @@ struct HealthStatus {
     status: &'static str,
 }
 
-pub fn public_routes() -> Router {
+pub fn public_routes() -> Router<AppState> {
     Router::new().route("/", get(root))
 }
 
-pub fn api_routes() -> Router {
+pub fn api_routes() -> Router<AppState> {
     Router::new().route("/health", get(health))
 }
 

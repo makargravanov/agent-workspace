@@ -3,16 +3,18 @@ use tower_http::trace::TraceLayer;
 
 use crate::http::request_id::request_id_layer;
 use crate::modules;
+use crate::state::AppState;
 
-pub fn build_router() -> Router {
-    Router::new()
+pub fn build_router(state: AppState) -> Router {
+    Router::<AppState>::new()
         .merge(modules::system::public_routes())
         .nest("/api/v1", api_v1_router())
         .layer(TraceLayer::new_for_http())
         .layer(request_id_layer())
+        .with_state(state)
 }
 
-fn api_v1_router() -> Router {
+fn api_v1_router() -> Router<AppState> {
     Router::new()
         .merge(modules::system::api_routes())
         .merge(modules::auth::routes())
@@ -31,15 +33,20 @@ fn api_v1_router() -> Router {
 #[cfg(test)]
 mod tests {
     use super::build_router;
+    use crate::state::AppState;
     use axum::{
         body::Body,
         http::{Request, StatusCode},
     };
     use tower::ServiceExt;
 
+    fn test_app() -> axum::Router {
+        build_router(AppState::new_lazy_for_test())
+    }
+
     #[tokio::test]
     async fn root_overview_is_available() {
-        let response = build_router()
+        let response = test_app()
             .oneshot(
                 Request::builder()
                     .uri("/")
@@ -54,7 +61,7 @@ mod tests {
 
     #[tokio::test]
     async fn api_health_is_available_under_versioned_namespace() {
-        let response = build_router()
+        let response = test_app()
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/health")

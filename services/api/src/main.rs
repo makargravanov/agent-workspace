@@ -1,6 +1,7 @@
 use agent_workspace_api::{
     app::build_router,
     db::{build_pool, DatabaseConfig},
+    state::AppState,
     telemetry::init_tracing,
 };
 use std::env;
@@ -31,7 +32,7 @@ async fn main() {
 
     info!(address = %bind_address, "agent-workspace-api listening");
 
-    axum::serve(listener, build_router())
+    axum::serve(listener, build_router(AppState::new(pool)))
         .await
         .expect("failed to serve API");
 }
