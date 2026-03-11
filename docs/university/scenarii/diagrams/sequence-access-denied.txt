@@ -1,0 +1,71 @@
+@startuml
+autonumber
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Times New Roman
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam sequenceParticipant underline
+skinparam BoxPadding 10
+
+title Диаграмма последовательности альтернативного сценария: отказ в изменении статуса задачи агентом
+
+actor "Агент" as Agent
+participant "MCP bridge" as Mcp
+participant "API-сервис" as Api
+participant "Auth & Access" as Auth
+participant "Task Service" as TaskService
+database "PostgreSQL" as Db
+queue "Очередь событий" as Queue
+participant "Audit Worker" as AuditWorker
+
+Agent -> Mcp : Вызов инструмента\nupdate_task_status(...)
+activate Mcp
+Mcp -> Api : HTTP PATCH /api/mcp/tasks/{taskId}/status
+activate Api
+Api -> Auth : HTTP middleware\nПроверка ключа агента
+activate Auth
+Auth -> Db : SQL SELECT agent_credential, scope_set
+activate Db
+Db --> Auth : credential + scopes + status
+deactivate Db
+
+alt Ключ истек или отозван
+  Auth --> Api : Ошибка аутентификации
+  deactivate Auth
+  Api ->> Queue : message queue\nSecurityEvent(auth_failed)
+  Api --> Mcp : HTTP 401 Unauthorized
+  deactivate Api
+  Mcp --> Agent : Сообщение: ключ недействителен
+  deactivate Mcp
+else Ключ действителен, но разрешение отсутствует
+  Auth --> Api : Scope check failed
+  deactivate Auth
+  Api ->> Queue : message queue\nSecurityEvent(scope_denied)
+  Api --> Mcp : HTTP 403 Forbidden
+  deactivate Api
+  Mcp --> Agent : Сообщение: операция запрещена
+  deactivate Mcp
+end
+
+Queue ->> AuditWorker : message queue\nconsume SecurityEvent
+activate AuditWorker
+AuditWorker -> Db : SQL INSERT audit_event
+activate Db
+Db --> AuditWorker : OK
+deactivate Db
+deactivate AuditWorker
+
+note over Api,TaskService
+При кодах 401 и 403 вызов сервиса изменения
+статуса не выполняется, поэтому состояние
+задачи в базе данных остается без изменений.
+end note
+
+note right of Auth
+Точка возникновения ошибки находится
+на этапе проверки действительности ключа
+и набора разрешений агента.
+end note
+
+@enduml

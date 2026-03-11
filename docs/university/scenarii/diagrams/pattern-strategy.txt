@@ -1,0 +1,53 @@
+@startuml
+hide empty members
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Times New Roman
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+title UML-диаграмма класса для паттерна Strategy
+
+class AuthService {
+  +authenticate(request: AuthRequest) : AuthResult
+}
+
+interface AuthProviderStrategy {
+  +authenticate(request: AuthRequest) : AuthResult
+}
+
+class GitHubOAuthStrategy
+class OidcStrategy
+class DevAuthStrategy
+
+class AuthRequest {
+  +provider : String
+  +callbackPayload : String
+}
+
+class AuthResult {
+  +memberId : UUID
+  +sessionId : UUID
+}
+
+class WorkspaceMember {
+  +id : UUID
+  +externalSubject : String
+  +role : MemberRole
+}
+
+AuthService --> AuthProviderStrategy : выбирает и использует
+AuthProviderStrategy <|.. GitHubOAuthStrategy : вариант
+AuthProviderStrategy <|.. OidcStrategy : вариант
+AuthProviderStrategy <|.. DevAuthStrategy : вариант
+AuthService ..> AuthRequest : принимает
+AuthService ..> AuthResult : возвращает
+AuthResult --> WorkspaceMember : идентифицирует
+
+note right of AuthProviderStrategy
+Позволяет менять способ
+аутентификации без изменения
+основного сервиса.
+end note
+
+@enduml

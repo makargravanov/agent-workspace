@@ -1,0 +1,47 @@
+@startuml
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_TOP_DOWN()
+
+title Диаграмма компонентов API-сервиса
+
+System_Ext(github, "GitHub", "Внешняя система разработки")
+System_Ext(authProvider, "Провайдер аутентификации", "GitHub OAuth или OIDC provider")
+System_Ext(assetStorage, "S3-compatible object storage", "Внешнее объектное хранилище файловых assets")
+
+System_Boundary(contourBoundary, "Система «Контур»") {
+    Container(webClient, "Web-клиент", "React + TypeScript + Vite", "Использует API для работы с системой")
+    Container(mcpBridge, "MCP bridge", "Rust utility", "Передает агентные запросы в API")
+    ContainerDb(database, "PostgreSQL", "PostgreSQL + pgvector", "Каноничные данные и поисковые индексы")
+
+    Container_Boundary(apiBoundary, "API-сервис (Rust + Axum)") {
+        Component(httpLayer, "HTTP API Layer", "Axum routers", "Принимает HTTP-запросы, маршрутизирует их и формирует ответы")
+        Component(authAccess, "Auth & Access", "Session and policy checks", "Проверяет аутентификацию, роли и границы доступа")
+        Component(workspaceCore, "Workspace & Project", "Domain module", "Управляет workspace, проектами и участниками")
+        Component(taskManagement, "Task Management", "Domain module", "Работает с задачами, группами задач и зависимостями")
+        Component(knowledgeBase, "Knowledge Base", "Domain module", "Работает с документами, заметками, ссылками и привязкой файлов")
+        Component(searchModule, "Search & Indexing", "Search module", "Выполняет полнотекстовый и семантический поиск")
+        Component(githubIntegration, "GitHub Integration", "Integration module", "Синхронизирует issues, pull request и связанные артефакты")
+        Component(assetStorageAdapter, "Asset Storage Adapter", "Infrastructure adapter", "Обращается к файловому хранилищу через абстракцию AssetStorage")
+    }
+}
+
+Rel(webClient, httpLayer, "Вызывает пользовательские endpoint-ы", "HTTPS / JSON")
+Rel(mcpBridge, httpLayer, "Вызывает агентные endpoint-ы", "HTTPS / JSON")
+Rel(httpLayer, authAccess, "Проверяет сессию и права")
+Rel(httpLayer, workspaceCore, "Передает запросы workspace и project")
+Rel(httpLayer, taskManagement, "Передает запросы задач")
+Rel(httpLayer, knowledgeBase, "Передает запросы документов и заметок")
+Rel(httpLayer, searchModule, "Передает поисковые запросы")
+Rel(httpLayer, githubIntegration, "Передает команды интеграции")
+Rel(workspaceCore, database, "Читает и записывает данные", "SQL")
+Rel(taskManagement, database, "Читает и записывает данные", "SQL")
+Rel(knowledgeBase, database, "Читает и записывает данные", "SQL")
+Rel(searchModule, database, "Использует полнотекстовые и векторные индексы", "SQL")
+Rel(authAccess, database, "Читает участников и сессии", "SQL")
+Rel(authAccess, authProvider, "Обрабатывает аутентификацию пользователей", "OAuth 2.0 / OIDC")
+Rel(knowledgeBase, assetStorageAdapter, "Запрашивает операции с файлами")
+Rel(assetStorageAdapter, assetStorage, "Сохраняет и получает assets", "S3 API")
+Rel(githubIntegration, github, "Синхронизирует артефакты", "REST API / Webhook")
+
+@enduml

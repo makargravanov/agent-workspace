@@ -1,0 +1,44 @@
+\appendix
+\newcommand{\scenariodiagram}[4]{
+\begin{figure}[H]
+	\begin{center}
+		\IfFileExists{#1}{
+			\includegraphics[width=0.97\textwidth,height=0.78\textheight,keepaspectratio]{#1}
+		}{
+			\fbox{\parbox[c][0.58\textheight][c]{0.90\textwidth}{\centering #4}}
+		}
+		\caption{#2}
+		\label{#3}
+	\end{center}
+\end{figure}
+}
+
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{А\arabic{figure}}
+
+\specialsection{Приложение А}
+
+В приложении А приведены диаграммы последовательности ключевых сценариев системы.
+
+\scenariodiagram{diagrams/sequence-happy-path.png}{Диаграмма последовательности основного сценария: создание задачи и фиксация связанного контекста}{fig:appendix-sequence-happy-path}{Диаграмма последовательности основного пользовательского сценария.}
+
+\clearpage
+
+\scenariodiagram{diagrams/sequence-access-denied.png}{Диаграмма последовательности альтернативного сценария: отказ в изменении статуса задачи агентом}{fig:appendix-sequence-access-denied}{Диаграмма последовательности сценария обработки ошибки авторизации агентного запроса.}
+
+\clearpage
+
+\scenariodiagram{diagrams/sequence-integration-sync.png}{Диаграмма последовательности сложного сценария: синхронизация артефактов GitHub и файлового хранилища}{fig:appendix-sequence-integration-sync}{Диаграмма последовательности интеграционного сценария с внешними системами.}
+
+\clearpage
+
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{Б\arabic{figure}}
+
+\specialsection{Приложение Б}
+
+В приложении Б приведена BPMN-диаграмма ключевого бизнес-процесса системы.
+
+\scenariodiagram{diagrams/bpmn-task-lifecycle.png}{BPMN-диаграмма процесса обработки задачи}{fig:appendix-bpmn-task-lifecycle}{BPMN-диаграмма процесса обработки задачи от постановки до завершения.}
+
+\clearpage

@@ -1,0 +1,52 @@
+@startuml
+hide empty members
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Times New Roman
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+title UML-диаграмма класса для паттерна Adapter
+
+class AssetService {
+  +uploadAsset(file: UploadFile) : Asset
+  +downloadAsset(assetId: UUID) : BinaryAsset
+}
+
+interface AssetStorage {
+  +put(file: BinaryAsset) : StorageKey
+  +get(key: StorageKey) : BinaryAsset
+  +delete(key: StorageKey)
+}
+
+class S3AssetStorageAdapter {
+  -client : S3Client
+}
+
+class LocalAssetStorageAdapter {
+  -fs : LocalFileSystem
+}
+
+class S3Client
+class LocalFileSystem
+
+class Asset {
+  +id : UUID
+  +fileName : String
+  +storageKey : String
+}
+
+AssetService --> AssetStorage : использует
+AssetStorage <|.. S3AssetStorageAdapter : реализует
+AssetStorage <|.. LocalAssetStorageAdapter : реализует
+S3AssetStorageAdapter --> S3Client : адаптирует API
+LocalAssetStorageAdapter --> LocalFileSystem : адаптирует API
+AssetService ..> Asset : управляет
+
+note right of AssetStorage
+Скрывает различия между
+локальным и S3-compatible
+вариантами хранения.
+end note
+
+@enduml

@@ -1,0 +1,45 @@
+@startuml
+hide empty members
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Times New Roman
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+title UML-диаграмма класса для паттерна Repository
+
+class TaskService {
+  +getTask(taskId: UUID) : Task
+  +saveTask(task: Task)
+}
+
+interface TaskRepository {
+  +findById(taskId: UUID) : Task
+  +findByProject(projectId: UUID) : Task[]
+  +save(task: Task)
+}
+
+class PostgresTaskRepository {
+  -db : PgPool
+}
+
+class Task {
+  +id : UUID
+  +title : String
+  +status : TaskStatus
+  +priority : TaskPriority
+}
+
+class PostgreSQL <<database>>
+
+TaskService --> TaskRepository : использует
+TaskRepository <|.. PostgresTaskRepository : реализует
+TaskRepository ..> Task : загружает и сохраняет
+PostgresTaskRepository --> PostgreSQL : SQL
+
+note right of TaskRepository
+Абстрагирует прикладной сервис
+от деталей хранения данных.
+end note
+
+@enduml

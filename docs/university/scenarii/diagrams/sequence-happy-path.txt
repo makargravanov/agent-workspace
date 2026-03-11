@@ -1,0 +1,87 @@
+@startuml
+autonumber
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Times New Roman
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam sequenceParticipant underline
+skinparam BoxPadding 10
+
+title Диаграмма последовательности основного сценария: создание задачи и фиксация связанного контекста
+
+actor "Координатор" as Coordinator
+participant "Web-клиент" as Web
+participant "API-сервис" as Api
+participant "Auth & Access" as Auth
+participant "Task Service" as TaskService
+participant "Link Service" as LinkService
+database "PostgreSQL" as Db
+queue "Очередь событий" as Queue
+participant "Audit Worker" as AuditWorker
+
+Coordinator -> Web : Вводит атрибуты задачи
+activate Web
+Web -> Api : HTTP POST /api/projects/{projectId}/tasks
+activate Api
+
+Api -> Auth : HTTP middleware\nПроверка сессии и прав
+activate Auth
+Auth -> Db : SQL SELECT member_session
+activate Db
+Db --> Auth : session + role
+deactivate Db
+Auth --> Api : Доступ подтвержден
+deactivate Auth
+
+Api -> TaskService : Вызов сервиса создания задачи
+activate TaskService
+TaskService -> Db : SQL INSERT task
+activate Db
+Db --> TaskService : task_id + created_at
+deactivate Db
+
+alt Выбраны связанные документы, заметки или файлы
+  loop Для каждой связанной сущности
+    TaskService -> LinkService : Создать связь task-entity
+    activate LinkService
+    LinkService -> Db : SQL INSERT link
+    activate Db
+    Db --> LinkService : OK
+    deactivate Db
+    LinkService --> TaskService : Связь сохранена
+    deactivate LinkService
+  end
+else Связанные сущности не выбраны
+  TaskService --> TaskService : Пропуск шага связывания
+end
+
+TaskService --> Api : 201 Created + данные задачи
+deactivate TaskService
+Api ->> Queue : message queue\nTaskCreated
+Api --> Web : HTTP 201 Created
+deactivate Api
+Web --> Coordinator : Карточка новой задачи
+deactivate Web
+
+Queue ->> AuditWorker : message queue\nTaskCreated event
+activate AuditWorker
+AuditWorker -> Db : SQL INSERT audit_event
+activate Db
+Db --> AuditWorker : OK
+deactivate Db
+deactivate AuditWorker
+
+note right of Api
+Синхронная часть сценария завершается
+до записи аудита, поэтому пользователь
+получает ответ без ожидания фоновой обработки.
+end note
+
+note right of LinkService
+Ветка alt и цикл loop показывают,
+что связывание контекста выполняется
+только при наличии выбранных объектов.
+end note
+
+@enduml

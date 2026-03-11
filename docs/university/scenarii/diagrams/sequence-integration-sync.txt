@@ -1,0 +1,102 @@
+@startuml
+autonumber
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Times New Roman
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam sequenceParticipant underline
+skinparam BoxPadding 10
+
+title Диаграмма последовательности сложного сценария: синхронизация артефактов GitHub и файлового хранилища
+
+actor "Координатор" as Coordinator
+participant "Web-клиент" as Web
+participant "API-сервис" as Api
+participant "Sync Orchestrator" as Orchestrator
+queue "Очередь событий" as Queue
+participant "Sync Worker" as Worker
+participant "GitHub API" as GitHub
+participant "S3-совместимое\nхранилище" as Storage
+database "PostgreSQL" as Db
+participant "Search Indexer" as Indexer
+
+Coordinator -> Web : Запускает синхронизацию карточки задачи
+activate Web
+Web -> Api : HTTP POST /api/tasks/{taskId}/sync
+activate Api
+Api -> Orchestrator : gRPC StartSync(taskId)
+activate Orchestrator
+Orchestrator ->> Queue : message queue\nSyncRequested(jobId)
+Orchestrator --> Api : accepted(jobId)
+deactivate Orchestrator
+Api --> Web : HTTP 202 Accepted
+deactivate Api
+Web --> Coordinator : Задача синхронизации поставлена в очередь
+deactivate Web
+
+Queue ->> Worker : message queue\nconsume SyncRequested
+activate Worker
+
+par Получение артефактов из GitHub
+  loop До 3 попыток при таймауте
+    Worker -> GitHub : HTTP GET /repos/.../issues,pulls,commits
+    activate GitHub
+    alt Ответ получен до истечения таймаута
+      GitHub --> Worker : 200 OK + артефакты
+      deactivate GitHub
+    else Таймаут или временная ошибка
+      GitHub --> Worker : timeout / 5xx
+      deactivate GitHub
+      Worker -> Worker : Backoff и повтор запроса
+    end
+  end
+else Сохранение файлового снимка
+  loop До 3 попыток при таймауте
+    Worker -> Storage : HTTP PUT /snapshot + метаданные
+    activate Storage
+    alt Операция выполнена успешно
+      Storage --> Worker : 200 OK + etag
+      deactivate Storage
+    else Таймаут или временная ошибка
+      Storage --> Worker : timeout / 5xx
+      deactivate Storage
+      Worker -> Worker : Backoff и повтор запроса
+    end
+  end
+end
+
+alt Обе параллельные ветви завершены успешно
+  Worker -> Db : SQL UPSERT integration_snapshot
+  activate Db
+  Db --> Worker : snapshot_id
+  deactivate Db
+  Worker ->> Queue : message queue\nIndexRefreshRequested
+  Queue ->> Indexer : message queue\nconsume IndexRefreshRequested
+  activate Indexer
+  Indexer -> Db : SQL UPDATE search_index
+  activate Db
+  Db --> Indexer : OK
+  deactivate Db
+  deactivate Indexer
+else Одна из ветвей исчерпала retry-лимит
+  Worker -> Db : SQL UPDATE sync_job\nstatus = partial_failed
+  activate Db
+  Db --> Worker : OK
+  deactivate Db
+  Worker ->> Queue : message queue\nSyncFailed(jobId)
+end
+
+note right of Orchestrator
+Внутренний gRPC-вызов выделяет контракт
+между API и контуром фоновой синхронизации.
+end note
+
+note over Worker,Storage
+Параллельный фрагмент par показывает независимую
+работу с двумя внешними интеграциями. В каждой ветви
+применяются таймауты и ограниченное число повторов.
+end note
+
+deactivate Worker
+@enduml

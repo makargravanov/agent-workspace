@@ -1,0 +1,25 @@
+@startuml
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_TOP_DOWN()
+
+title Контекстная диаграмма системы "Контур"
+
+Person(member, "Участник workspace", "Работает с задачами, документами, заметками и файлами через web-интерфейс")
+Person(owner, "Владелец / координатор", "Управляет проектами, участниками, агентами и интеграциями")
+Person(agent, "AI-агент", "Получает проектный контекст и выполняет разрешенные действия через MCP")
+
+System(contour, "Система «Контур»", "Единое рабочее пространство для задач, групп задач, документов, заметок и агентных сессий")
+
+System_Ext(github, "GitHub", "Внешняя система для issues, pull request, commits и branches")
+System_Ext(authProvider, "Провайдер аутентификации", "GitHub OAuth или OIDC provider")
+System_Ext(objectStorage, "Object storage", "S3-compatible хранилище файловых assets")
+
+Rel(member, contour, "Просматривает и обновляет рабочий контекст", "HTTPS")
+Rel(owner, contour, "Управляет workspace, ролями и интеграциями", "HTTPS")
+Rel(agent, contour, "Получает контекст и ограниченно изменяет данные", "MCP / HTTPS")
+Rel(contour, github, "Синхронизирует артефакты разработки", "REST API / Webhook")
+Rel(contour, authProvider, "Аутентифицирует пользователей", "OAuth 2.0 / OIDC")
+Rel(contour, objectStorage, "Сохраняет и получает файлы assets", "S3 API")
+
+@enduml
