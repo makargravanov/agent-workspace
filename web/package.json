@@ -9,6 +9,7 @@
     "preview": "vite preview --host 0.0.0.0 --port 4173"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.90.21",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -16,7 +17,13 @@
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.4.1",
+    "msw": "^2.12.10",
     "typescript": "^5.8.2",
     "vite": "^6.2.0"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }
