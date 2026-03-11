@@ -3,6 +3,9 @@
 //! This module is compiled only in test builds (`#[cfg(test)]` gate in `lib.rs`).
 //! Use [`sqlite_test_pool`] to obtain a fresh, isolated database with all
 //! migrations applied in each test.
+//!
+//! Use [`any_test_pool`] when you need an [`sqlx::AnyPool`] — for example, to
+//! build an [`crate::app::AppState`] in handler-level integration tests.
 
 pub mod fixtures;
 
@@ -31,6 +34,36 @@ pub async fn sqlite_test_pool() -> SqlitePool {
 
     pool
 }
+
+/// Build an in-memory SQLite [`sqlx::AnyPool`], apply the SQLite migration set,
+/// and enable foreign key enforcement.
+///
+/// Use this helper when a test needs to construct an [`crate::app::AppState`] for
+/// handler-level integration tests.  Calls
+/// [`sqlx::any::install_default_drivers`] internally so it is safe to call it
+/// multiple times.
+pub async fn any_test_pool() -> sqlx::AnyPool {
+    sqlx::any::install_default_drivers();
+
+    let pool = sqlx::any::AnyPoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("in-memory AnyPool (SQLite) should open");
+
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await
+        .expect("PRAGMA foreign_keys = ON should execute");
+
+    sqlx::migrate!("./migrations_sqlite")
+        .run(&pool)
+        .await
+        .expect("SQLite migrations should apply without error");
+
+    pool
+}
+
 
 #[cfg(test)]
 mod smoke {

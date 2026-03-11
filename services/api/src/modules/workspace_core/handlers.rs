@@ -5,11 +5,11 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::app::AppState;
 use crate::http::audit::{emit_audit, AuditEvent};
 use crate::http::error::ApiError;
 use crate::http::request_id::RequestId;
 use crate::http::response::{ApiResponse, Created, ListData, ResponseMeta};
+use crate::state::AppState;
 
 use super::{domain, repo};
 
@@ -17,7 +17,7 @@ use super::{domain, repo};
 // Router
 // ---------------------------------------------------------------------------
 
-pub fn routes(state: AppState) -> Router {
+pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/workspaces", get(list_workspaces).post(create_workspace))
         .route("/workspaces/{workspace_slug}", get(get_workspace))
@@ -29,7 +29,6 @@ pub fn routes(state: AppState) -> Router {
             "/workspaces/{workspace_slug}/projects/{project_slug}",
             get(get_project),
         )
-        .with_state(state)
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +286,7 @@ fn is_unique_violation(err: &dyn sqlx::error::DatabaseError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::sqlite_test_pool;
+    use crate::testing::any_test_pool;
     use axum::{
         body::Body,
         http::{Request, StatusCode},
@@ -298,8 +297,7 @@ mod tests {
     const TEST_RID: &str = "test-request-id";
 
     async fn test_router() -> Router {
-        let state = AppState { pool: sqlite_test_pool().await };
-        routes(state)
+        routes().with_state(AppState::new(any_test_pool().await))
     }
 
     // ---- Workspace endpoints ----
@@ -324,8 +322,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_and_get_workspace() {
-        let state = AppState { pool: sqlite_test_pool().await };
-        let router = routes(state);
+        let router = routes().with_state(AppState::new(any_test_pool().await));
 
         // Create
         let create_resp = router
@@ -379,8 +376,7 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_workspace_slug_returns_422() {
-        let state = AppState { pool: sqlite_test_pool().await };
-        let router = routes(state);
+        let router = routes().with_state(AppState::new(any_test_pool().await));
         let body = r#"{"slug":"dup","name":"First"}"#;
 
         let r1 = router
@@ -429,8 +425,8 @@ mod tests {
 
     #[tokio::test]
     async fn create_and_get_project() {
-        let state = AppState { pool: sqlite_test_pool().await };
-        let router = routes(state.clone());
+        let state = AppState::new(any_test_pool().await);
+        let router = routes().with_state(state.clone());
 
         // Seed workspace via repo
         repo::insert_workspace(&state.pool, &Uuid::new_v4().to_string(), "ws", "WS")
@@ -485,8 +481,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_nonexistent_project_returns_404() {
-        let state = AppState { pool: sqlite_test_pool().await };
-        let router = routes(state.clone());
+        let state = AppState::new(any_test_pool().await);
+        let router = routes().with_state(state.clone());
         repo::insert_workspace(&state.pool, &Uuid::new_v4().to_string(), "ws2", "WS2")
             .await
             .unwrap();

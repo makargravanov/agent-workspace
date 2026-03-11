@@ -5,5 +5,4 @@ pub mod tx;
 
 pub use config::DatabaseConfig;
 pub use error::DbError;
-pub use pool::{build_pool, build_sqlite_pool};
-pub use tx::in_transaction;
+pub use pool::{build_any_pool, build_pool, build_sqlite_pool};

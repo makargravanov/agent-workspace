@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use sqlx::AnyPool;
 
 use super::domain::{Project, Workspace};
 
@@ -6,9 +6,11 @@ use super::domain::{Project, Workspace};
 // Workspaces
 // ---------------------------------------------------------------------------
 
-pub async fn list_workspaces(pool: &SqlitePool) -> Result<Vec<Workspace>, sqlx::Error> {
+pub async fn list_workspaces(pool: &AnyPool) -> Result<Vec<Workspace>, sqlx::Error> {
     sqlx::query_as::<_, Workspace>(
-        "SELECT id, slug, name, created_at, updated_at \
+        "SELECT CAST(id AS TEXT) AS id, slug, name, \
+                CAST(created_at AS TEXT) AS created_at, \
+                CAST(updated_at AS TEXT) AS updated_at \
          FROM workspaces \
          ORDER BY created_at DESC",
     )
@@ -17,13 +19,15 @@ pub async fn list_workspaces(pool: &SqlitePool) -> Result<Vec<Workspace>, sqlx::
 }
 
 pub async fn get_workspace_by_slug(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     slug: &str,
 ) -> Result<Option<Workspace>, sqlx::Error> {
     sqlx::query_as::<_, Workspace>(
-        "SELECT id, slug, name, created_at, updated_at \
+        "SELECT CAST(id AS TEXT) AS id, slug, name, \
+                CAST(created_at AS TEXT) AS created_at, \
+                CAST(updated_at AS TEXT) AS updated_at \
          FROM workspaces \
-         WHERE slug = ?",
+         WHERE slug = $1",
     )
     .bind(slug)
     .fetch_optional(pool)
@@ -31,13 +35,13 @@ pub async fn get_workspace_by_slug(
 }
 
 pub async fn insert_workspace(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     id: &str,
     slug: &str,
     name: &str,
 ) -> Result<Workspace, sqlx::Error> {
     sqlx::query(
-        "INSERT INTO workspaces (id, slug, name) VALUES (?, ?, ?)",
+        "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3)",
     )
     .bind(id)
     .bind(slug)
@@ -56,13 +60,16 @@ pub async fn insert_workspace(
 // ---------------------------------------------------------------------------
 
 pub async fn list_projects(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     workspace_id: &str,
 ) -> Result<Vec<Project>, sqlx::Error> {
     sqlx::query_as::<_, Project>(
-        "SELECT id, workspace_id, slug, name, status, created_at, updated_at \
+        "SELECT CAST(id AS TEXT) AS id, CAST(workspace_id AS TEXT) AS workspace_id, \
+                slug, name, status, \
+                CAST(created_at AS TEXT) AS created_at, \
+                CAST(updated_at AS TEXT) AS updated_at \
          FROM projects \
-         WHERE workspace_id = ? \
+         WHERE workspace_id = $1 \
          ORDER BY created_at DESC",
     )
     .bind(workspace_id)
@@ -71,14 +78,17 @@ pub async fn list_projects(
 }
 
 pub async fn get_project_by_slug(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     workspace_id: &str,
     project_slug: &str,
 ) -> Result<Option<Project>, sqlx::Error> {
     sqlx::query_as::<_, Project>(
-        "SELECT id, workspace_id, slug, name, status, created_at, updated_at \
+        "SELECT CAST(id AS TEXT) AS id, CAST(workspace_id AS TEXT) AS workspace_id, \
+                slug, name, status, \
+                CAST(created_at AS TEXT) AS created_at, \
+                CAST(updated_at AS TEXT) AS updated_at \
          FROM projects \
-         WHERE workspace_id = ? AND slug = ?",
+         WHERE workspace_id = $1 AND slug = $2",
     )
     .bind(workspace_id)
     .bind(project_slug)
@@ -87,7 +97,7 @@ pub async fn get_project_by_slug(
 }
 
 pub async fn insert_project(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     id: &str,
     workspace_id: &str,
     slug: &str,
@@ -95,7 +105,7 @@ pub async fn insert_project(
 ) -> Result<Project, sqlx::Error> {
     sqlx::query(
         "INSERT INTO projects (id, workspace_id, slug, name, status) \
-         VALUES (?, ?, ?, ?, 'active')",
+         VALUES ($1, $2, $3, $4, 'active')",
     )
     .bind(id)
     .bind(workspace_id)

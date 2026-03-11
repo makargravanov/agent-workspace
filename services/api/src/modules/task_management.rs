@@ -12,12 +12,11 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     routing::{get, patch},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
+use sqlx::QueryBuilder;
 use uuid::Uuid;
 
 use crate::{
@@ -26,6 +25,7 @@ use crate::{
         audit::{emit_audit, AuditEvent},
         error::ApiError,
         request_id::RequestId,
+        response::{ApiResponse, Created, ListData, ResponseMeta},
     },
     state::AppState,
 };
@@ -35,55 +35,51 @@ use crate::{
 /// Full task row including the computed `blocked` field.
 #[derive(sqlx::FromRow)]
 struct TaskRow {
-    id: Uuid,
-    project_id: Uuid,
-    group_id: Option<Uuid>,
-    parent_task_id: Option<Uuid>,
+    id: String,
+    project_id: String,
+    group_id: Option<String>,
+    parent_task_id: Option<String>,
     title: String,
     description_md: Option<String>,
     status: String,
     priority: String,
     rank_key: String,
-    starts_at: Option<OffsetDateTime>,
-    due_at: Option<OffsetDateTime>,
+    starts_at: Option<String>,
+    due_at: Option<String>,
     assignee_type: Option<String>,
-    assignee_id: Option<Uuid>,
-    blocked: bool,
-    created_at: OffsetDateTime,
-    updated_at: OffsetDateTime,
+    assignee_id: Option<String>,
+    blocked: i64,
+    created_at: String,
+    updated_at: String,
 }
 
 /// Minimal row returned from the project resolution query.
 #[derive(sqlx::FromRow)]
 struct ProjectLookupRow {
-    id: Uuid,
-    workspace_id: Uuid,
+    id: String,
+    workspace_id: String,
 }
 
 // ── Public response type (used in tests) ─────────────────────────────────────
 
 #[derive(Debug, Serialize)]
 pub struct TaskDetail {
-    pub id: Uuid,
-    pub project_id: Uuid,
-    pub group_id: Option<Uuid>,
-    pub parent_task_id: Option<Uuid>,
+    pub id: String,
+    pub project_id: String,
+    pub group_id: Option<String>,
+    pub parent_task_id: Option<String>,
     pub title: String,
     pub description_md: Option<String>,
     pub status: String,
     pub priority: String,
     pub rank_key: String,
-    #[serde(with = "time::serde::rfc3339::option")]
-    pub starts_at: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option")]
-    pub due_at: Option<OffsetDateTime>,
+    pub starts_at: Option<String>,
+    pub due_at: Option<String>,
     pub assignee_type: Option<String>,
-    pub assignee_id: Option<Uuid>,
+    pub assignee_id: Option<String>,
     pub blocked: bool,
-    #[serde(with = "time::serde::rfc3339")]
-    pub created_at: OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339")]
-    pub updated_at: OffsetDateTime,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 impl From<TaskRow> for TaskDetail {
@@ -102,48 +98,11 @@ impl From<TaskRow> for TaskDetail {
             due_at: r.due_at,
             assignee_type: r.assignee_type,
             assignee_id: r.assignee_id,
-            blocked: r.blocked,
+            blocked: r.blocked != 0,
             created_at: r.created_at,
             updated_at: r.updated_at,
         }
     }
-}
-
-// ── Response envelope ─────────────────────────────────────────────────────────
-
-#[derive(Serialize)]
-struct ApiResponse<T: Serialize> {
-    data: T,
-    meta: Meta,
-}
-
-#[derive(Serialize)]
-struct Meta {
-    request_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    audit_event_id: Option<Uuid>,
-}
-
-impl<T: Serialize> ApiResponse<T> {
-    fn ok(data: T, request_id: impl Into<String>) -> Self {
-        Self { data, meta: Meta { request_id: request_id.into(), audit_event_id: None } }
-    }
-
-    fn with_audit(data: T, request_id: impl Into<String>, audit_event_id: Uuid) -> Self {
-        Self {
-            data,
-            meta: Meta { request_id: request_id.into(), audit_event_id: Some(audit_event_id) },
-        }
-    }
-}
-
-/// List response body wrapped in `data`.
-#[derive(Serialize)]
-struct TaskListData {
-    items: Vec<TaskDetail>,
-    total: i64,
-    /// Always `None` for now; cursor-based pagination is a BL-21 concern.
-    next_cursor: Option<String>,
 }
 
 // ── Request types ─────────────────────────────────────────────────────────────
@@ -151,15 +110,15 @@ struct TaskListData {
 #[derive(Debug, Deserialize)]
 pub struct CreateTaskRequest {
     pub title: String,
-    pub group_id: Option<Uuid>,
-    pub parent_task_id: Option<Uuid>,
+    pub group_id: Option<String>,
+    pub parent_task_id: Option<String>,
     pub description_md: Option<String>,
     #[serde(default = "default_priority")]
     pub priority: String,
     #[serde(default = "default_rank_key")]
     pub rank_key: String,
     pub assignee_type: Option<String>,
-    pub assignee_id: Option<Uuid>,
+    pub assignee_id: Option<String>,
 }
 
 fn default_priority() -> String {
@@ -181,9 +140,9 @@ pub struct ListTasksQuery {
     /// Filter by task status.
     pub status: Option<String>,
     /// Filter by task group (epic / initiative).
-    pub group_id: Option<Uuid>,
+    pub group_id: Option<String>,
     /// Filter by assignee UUID.
-    pub assignee_id: Option<Uuid>,
+    pub assignee_id: Option<String>,
     /// Maximum number of tasks to return (1–200, default 50).
     #[serde(default = "default_limit")]
     pub limit: i64,
@@ -191,6 +150,23 @@ pub struct ListTasksQuery {
 
 fn default_limit() -> i64 {
     50
+}
+
+fn push_task_filters(builder: &mut QueryBuilder<'_, sqlx::Any>, query: &ListTasksQuery) {
+    if let Some(status) = query.status.clone() {
+        builder.push(" AND t.status = ");
+        builder.push_bind(status);
+    }
+
+    if let Some(group_id) = query.group_id.clone() {
+        builder.push(" AND t.group_id = ");
+        builder.push_bind(group_id);
+    }
+
+    if let Some(assignee_id) = query.assignee_id.clone() {
+        builder.push(" AND t.assignee_id = ");
+        builder.push_bind(assignee_id);
+    }
 }
 
 // ── Route registration ────────────────────────────────────────────────────────
@@ -216,12 +192,12 @@ pub fn routes() -> Router<AppState> {
 /// Look up a project by workspace slug and project slug.
 /// Returns `None` when the workspace/project doesn't exist or the project is archived.
 async fn resolve_project(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::AnyPool,
     workspace_slug: &str,
     project_slug: &str,
 ) -> Result<Option<ProjectLookupRow>, sqlx::Error> {
     sqlx::query_as::<_, ProjectLookupRow>(
-        "SELECT p.id, p.workspace_id
+        "SELECT CAST(p.id AS TEXT) AS id, CAST(p.workspace_id AS TEXT) AS workspace_id
          FROM projects p
          JOIN workspaces w ON w.id = p.workspace_id
          WHERE w.slug = $1 AND p.slug = $2 AND p.status != 'archived'",
@@ -239,24 +215,31 @@ async fn resolve_project(
 ///   - `is_hard_block = true`
 ///   - the predecessor task is not yet `done` or `cancelled`
 async fn fetch_task_detail(
-    pool: &sqlx::PgPool,
-    project_id: Uuid,
-    task_id: Uuid,
+    pool: &sqlx::AnyPool,
+    project_id: &str,
+    task_id: &str,
 ) -> Result<Option<TaskRow>, sqlx::Error> {
     sqlx::query_as::<_, TaskRow>(
         "SELECT
-             t.id, t.project_id, t.group_id, t.parent_task_id,
+             CAST(t.id AS TEXT) AS id,
+             CAST(t.project_id AS TEXT) AS project_id,
+             CAST(t.group_id AS TEXT) AS group_id,
+             CAST(t.parent_task_id AS TEXT) AS parent_task_id,
              t.title, t.description_md, t.status, t.priority, t.rank_key,
-             t.starts_at, t.due_at, t.assignee_type, t.assignee_id,
-             t.created_at, t.updated_at,
-             EXISTS (
+             CAST(t.starts_at AS TEXT) AS starts_at,
+             CAST(t.due_at AS TEXT) AS due_at,
+             t.assignee_type,
+             CAST(t.assignee_id AS TEXT) AS assignee_id,
+             CAST(t.created_at AS TEXT) AS created_at,
+             CAST(t.updated_at AS TEXT) AS updated_at,
+             CASE WHEN EXISTS (
                  SELECT 1
                  FROM task_dependencies td
                  JOIN tasks blocker ON blocker.id = td.predecessor_task_id
                  WHERE td.successor_task_id = t.id
                    AND td.is_hard_block = true
                    AND blocker.status NOT IN ('done', 'cancelled')
-             ) AS blocked
+             ) THEN 1 ELSE 0 END AS blocked
          FROM tasks t
          WHERE t.id = $1 AND t.project_id = $2",
     )
@@ -280,7 +263,7 @@ async fn list_tasks(
     Query(query): Query<ListTasksQuery>,
     RequestId(request_id): RequestId,
     _actor: ActorContext,
-) -> Result<Json<ApiResponse<TaskListData>>, ApiError> {
+) -> Result<ApiResponse<ListData<TaskDetail>>, ApiError> {
     let project = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
         .map_err(|e| {
@@ -291,64 +274,72 @@ async fn list_tasks(
 
     let limit = query.limit.clamp(1, 200);
 
-    let rows = sqlx::query_as::<_, TaskRow>(
+    let mut select_query = QueryBuilder::<sqlx::Any>::new(
         "SELECT
-             t.id, t.project_id, t.group_id, t.parent_task_id,
+             CAST(t.id AS TEXT) AS id,
+             CAST(t.project_id AS TEXT) AS project_id,
+             CAST(t.group_id AS TEXT) AS group_id,
+             CAST(t.parent_task_id AS TEXT) AS parent_task_id,
              t.title, t.description_md, t.status, t.priority, t.rank_key,
-             t.starts_at, t.due_at, t.assignee_type, t.assignee_id,
-             t.created_at, t.updated_at,
-             EXISTS (
+             CAST(t.starts_at AS TEXT) AS starts_at,
+             CAST(t.due_at AS TEXT) AS due_at,
+             t.assignee_type,
+             CAST(t.assignee_id AS TEXT) AS assignee_id,
+             CAST(t.created_at AS TEXT) AS created_at,
+             CAST(t.updated_at AS TEXT) AS updated_at,
+             CASE WHEN EXISTS (
                  SELECT 1
                  FROM task_dependencies td
                  JOIN tasks blocker ON blocker.id = td.predecessor_task_id
                  WHERE td.successor_task_id = t.id
-                   AND td.is_hard_block = true
+                   AND td.is_hard_block = TRUE
                    AND blocker.status NOT IN ('done', 'cancelled')
-             ) AS blocked
+             ) THEN 1 ELSE 0 END AS blocked
          FROM tasks t
-         WHERE t.project_id = $1
-           AND ($2::text  IS NULL OR t.status      = $2)
-           AND ($3::uuid  IS NULL OR t.group_id    = $3)
-           AND ($4::uuid  IS NULL OR t.assignee_id = $4)
-         ORDER BY t.rank_key
-         LIMIT $5",
-    )
-    .bind(project.id)
-    .bind(query.status.as_deref())
-    .bind(query.group_id)
-    .bind(query.assignee_id)
-    .bind(limit)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!(error = %e, project_id = %project.id, "db error listing tasks");
-        ApiError::internal(&request_id, "database error")
-    })?;
+         WHERE t.project_id = ",
+    );
+    select_query.push_bind(project.id.clone());
+    push_task_filters(&mut select_query, &query);
+    select_query.push(" ORDER BY t.rank_key LIMIT ");
+    select_query.push_bind(limit);
 
-    let (total,): (i64,) = sqlx::query_as(
+    let rows: Vec<TaskRow> = select_query
+        .build_query_as()
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, project_id = %project.id, "db error listing tasks");
+            ApiError::internal(&request_id, "database error")
+        })?;
+
+    let mut count_query = QueryBuilder::<sqlx::Any>::new(
         "SELECT COUNT(*)
-         FROM tasks
-         WHERE project_id = $1
-           AND ($2::text  IS NULL OR status      = $2)
-           AND ($3::uuid  IS NULL OR group_id    = $3)
-           AND ($4::uuid  IS NULL OR assignee_id = $4)",
-    )
-    .bind(project.id)
-    .bind(query.status.as_deref())
-    .bind(query.group_id)
-    .bind(query.assignee_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!(error = %e, project_id = %project.id, "db error counting tasks");
-        ApiError::internal(&request_id, "database error")
-    })?;
+         FROM tasks t
+         WHERE t.project_id = ",
+    );
+    count_query.push_bind(project.id.clone());
+    push_task_filters(&mut count_query, &query);
+
+    let (total,): (i64,) = count_query
+        .build_query_as()
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, project_id = %project.id, "db error counting tasks");
+            ApiError::internal(&request_id, "database error")
+        })?;
 
     let items: Vec<TaskDetail> = rows.into_iter().map(TaskDetail::from).collect();
-    Ok(Json(ApiResponse::ok(
-        TaskListData { items, total, next_cursor: None },
-        request_id,
-    )))
+    let next_cursor = if total > limit {
+        Some(limit.to_string())
+    } else {
+        None
+    };
+
+    Ok(ApiResponse {
+        data: ListData { items, next_cursor },
+        meta: ResponseMeta { request_id, audit_event_id: None },
+    })
 }
 
 /// `GET /workspaces/:workspace_slug/projects/:project_slug/tasks/:task_id`
@@ -356,10 +347,10 @@ async fn list_tasks(
 /// Returns the full task detail, including the computed `blocked` field.
 async fn get_task(
     State(state): State<AppState>,
-    Path((workspace_slug, project_slug, task_id)): Path<(String, String, Uuid)>,
+    Path((workspace_slug, project_slug, task_id)): Path<(String, String, String)>,
     RequestId(request_id): RequestId,
     _actor: ActorContext,
-) -> Result<Json<ApiResponse<TaskDetail>>, ApiError> {
+) -> Result<ApiResponse<TaskDetail>, ApiError> {
     let project = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
         .map_err(|e| {
@@ -368,7 +359,7 @@ async fn get_task(
         })?
         .ok_or_else(|| ApiError::not_found(&request_id, "project not found"))?;
 
-    let task = fetch_task_detail(&state.pool, project.id, task_id)
+    let task = fetch_task_detail(&state.pool, &project.id, &task_id)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, task_id = %task_id, "db error fetching task");
@@ -376,7 +367,10 @@ async fn get_task(
         })?
         .ok_or_else(|| ApiError::not_found(&request_id, "task not found"))?;
 
-    Ok(Json(ApiResponse::ok(TaskDetail::from(task), request_id)))
+    Ok(ApiResponse {
+        data: TaskDetail::from(task),
+        meta: ResponseMeta { request_id, audit_event_id: None },
+    })
 }
 
 /// `POST /workspaces/:workspace_slug/projects/:project_slug/tasks`
@@ -389,7 +383,7 @@ async fn create_task(
     RequestId(request_id): RequestId,
     actor: ActorContext,
     Json(body): Json<CreateTaskRequest>,
-) -> Result<(StatusCode, Json<ApiResponse<TaskDetail>>), ApiError> {
+) -> Result<Created<TaskDetail>, ApiError> {
     // ── Input validation ──────────────────────────────────────────────────────
     if body.title.trim().is_empty() {
         return Err(ApiError::validation_error(&request_id, "title must not be empty"));
@@ -419,7 +413,7 @@ async fn create_task(
         .ok_or_else(|| ApiError::not_found(&request_id, "project not found"))?;
 
     // ── Insert ────────────────────────────────────────────────────────────────
-    let new_id = Uuid::new_v4();
+    let new_id = Uuid::new_v4().to_string();
 
     sqlx::query(
         "INSERT INTO tasks
@@ -428,9 +422,9 @@ async fn create_task(
               assignee_type, assignee_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'todo', $9, $10, $11)",
     )
-    .bind(new_id)
-    .bind(project.workspace_id)
-    .bind(project.id)
+        .bind(new_id.clone())
+        .bind(project.workspace_id)
+    .bind(project.id.clone())
     .bind(body.group_id)
     .bind(body.parent_task_id)
     .bind(&body.rank_key)
@@ -447,7 +441,7 @@ async fn create_task(
     })?;
 
     // ── Fetch created task ────────────────────────────────────────────────────
-    let task = fetch_task_detail(&state.pool, project.id, new_id)
+    let task = fetch_task_detail(&state.pool, &project.id, &new_id)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, task_id = %new_id, "db error fetching created task");
@@ -456,20 +450,19 @@ async fn create_task(
         .ok_or_else(|| ApiError::internal(&request_id, "task not found after insert"))?;
 
     // ── Audit ─────────────────────────────────────────────────────────────────
-    let audit_event_id = Uuid::new_v4();
     emit_audit(AuditEvent {
         request_id: request_id.clone(),
         actor,
         action: "task.created".to_string(),
         resource_kind: "task".to_string(),
-        resource_id: new_id.to_string(),
+        resource_id: new_id,
         payload: None,
     });
 
-    Ok((
-        StatusCode::CREATED,
-        Json(ApiResponse::with_audit(TaskDetail::from(task), request_id, audit_event_id)),
-    ))
+    Ok(Created(ApiResponse {
+        data: TaskDetail::from(task),
+        meta: ResponseMeta { request_id, audit_event_id: None },
+    }))
 }
 
 /// `PATCH /workspaces/:workspace_slug/projects/:project_slug/tasks/:task_id/status`
@@ -478,11 +471,11 @@ async fn create_task(
 /// the `tasks:write_status` scope may call this endpoint.
 async fn update_task_status(
     State(state): State<AppState>,
-    Path((workspace_slug, project_slug, task_id)): Path<(String, String, Uuid)>,
+    Path((workspace_slug, project_slug, task_id)): Path<(String, String, String)>,
     RequestId(request_id): RequestId,
     actor: ActorContext,
     Json(body): Json<UpdateTaskStatusRequest>,
-) -> Result<Json<ApiResponse<TaskDetail>>, ApiError> {
+) -> Result<ApiResponse<TaskDetail>, ApiError> {
     // ── Input validation ──────────────────────────────────────────────────────
     if !["todo", "in_progress", "done", "cancelled"].contains(&body.status.as_str()) {
         return Err(ApiError::validation_error(
@@ -503,12 +496,12 @@ async fn update_task_status(
     // ── Update ────────────────────────────────────────────────────────────────
     let affected = sqlx::query(
         "UPDATE tasks
-         SET status = $1, updated_at = NOW()
-         WHERE id = $2 AND project_id = $3",
+            SET status = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2 AND project_id = $3",
     )
     .bind(&body.status)
-    .bind(task_id)
-    .bind(project.id)
+    .bind(task_id.clone())
+    .bind(project.id.clone())
     .execute(&state.pool)
     .await
     .map_err(|e| {
@@ -522,7 +515,7 @@ async fn update_task_status(
     }
 
     // ── Fetch updated task ────────────────────────────────────────────────────
-    let task = fetch_task_detail(&state.pool, project.id, task_id)
+    let task = fetch_task_detail(&state.pool, &project.id, &task_id)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, task_id = %task_id, "db error fetching updated task");
@@ -531,17 +524,19 @@ async fn update_task_status(
         .ok_or_else(|| ApiError::internal(&request_id, "task not found after update"))?;
 
     // ── Audit ─────────────────────────────────────────────────────────────────
-    let audit_event_id = Uuid::new_v4();
     emit_audit(AuditEvent {
         request_id: request_id.clone(),
         actor,
         action: "task.status_updated".to_string(),
         resource_kind: "task".to_string(),
-        resource_id: task_id.to_string(),
+        resource_id: task_id,
         payload: Some(serde_json::json!({ "new_status": &body.status })),
     });
 
-    Ok(Json(ApiResponse::with_audit(TaskDetail::from(task), request_id, audit_event_id)))
+    Ok(ApiResponse {
+        data: TaskDetail::from(task),
+        meta: ResponseMeta { request_id, audit_event_id: None },
+    })
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

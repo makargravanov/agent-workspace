@@ -3,8 +3,8 @@ mod handlers;
 mod repo;
 
 use axum::Router;
-use crate::app::AppState;
+use crate::state::AppState;
 
-pub fn routes(state: AppState) -> Router {
-    handlers::routes(state)
+pub fn routes() -> Router<AppState> {
+    handlers::routes()
 }
