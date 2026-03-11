@@ -1,0 +1,52 @@
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName Times New Roman
+skinparam activity {
+  BackgroundColor white
+  BorderColor black
+  ArrowColor black
+  DiamondBackgroundColor white
+  DiamondBorderColor black
+  BarColor black
+  StartColor white
+  EndColor white
+  FontName Times New Roman
+}
+
+title UML-схема алгоритма развёртывания системы
+
+start
+:Проверить наличие Docker Engine\nи Docker Compose;
+if (Средства контейнеризации установлены?) then ([да])
+else ([нет])
+  :Установить Docker Engine\nили Docker Desktop с Compose;
+endif
+
+:Получить исходный код проекта;
+:Подготовить файл .env\nна основе .env.example;
+:Проверить доступность портов\n5432, 8080 и 5173;
+if (Порты свободны?) then ([да])
+else ([нет])
+  :Освободить занятые порты\nили скорректировать конфигурацию;
+endif
+
+:Выполнить сборку контейнерных образов;
+:Запустить контейнер PostgreSQL;
+:Дождаться успешного healthcheck\nбазы данных;
+if (База данных готова?) then ([да])
+  :Запустить API-сервис;
+  :Запустить web-клиент\nи MCP-мост;
+  :Проверить доступность API\nи web-интерфейса;
+  if (Все сервисы доступны?) then ([да])
+    :Перевести систему\nв рабочее состояние;
+    stop
+  else ([нет])
+    :Проанализировать журналы\nи перезапустить проблемный сервис;
+    stop
+  endif
+else ([нет])
+  :Проверить конфигурацию базы данных\nи повторить запуск;
+  stop
+endif
+@enduml

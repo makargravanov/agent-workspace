@@ -1,0 +1,25 @@
+\appendix
+\newcommand{\deployimageplaceholder}[4]{
+\begin{figure}[H]
+	\begin{center}
+		\IfFileExists{#1}{
+			\includegraphics[width=0.97\textwidth,height=0.78\textheight,keepaspectratio]{#1}
+		}{
+			\fbox{\parbox[c][0.58\textheight][c]{0.90\textwidth}{\centering #4}}
+		}
+		\caption{#2}
+		\label{#3}
+	\end{center}
+\end{figure}
+}
+
+\setcounter{figure}{0}
+\renewcommand{\thefigure}{А\arabic{figure}}
+
+\specialsection{Приложение А}
+
+В приложении А приведена UML-схема алгоритма развёртывания системы.
+
+\deployimageplaceholder{diagrams/deployment-algorithm.png}{UML-схема алгоритма развёртывания системы}{fig:appendix-deployment-algorithm}{UML-схема пошагового алгоритма развёртывания системы.}
+
+\clearpage
