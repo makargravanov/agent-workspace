@@ -1,11 +1,15 @@
 use axum::Router;
+use tower_http::trace::TraceLayer;
 
+use crate::http::request_id::request_id_layer;
 use crate::modules;
 
 pub fn build_router() -> Router {
     Router::new()
         .merge(modules::system::public_routes())
         .nest("/api/v1", api_v1_router())
+        .layer(TraceLayer::new_for_http())
+        .layer(request_id_layer())
 }
 
 fn api_v1_router() -> Router {
