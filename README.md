@@ -34,6 +34,7 @@ web/                   React + TypeScript фронтенд
 - `docs/specification/product-spec.md` — стартовая продуктовая и техническая спецификация.
 - `docs/specification/database-schema.md` — текстовая схема БД для этапа Domain foundation.
 - `docs/specification/api-contract.md` — первичный HTTP API-контракт.
+- `docs/specification/implementation-backlog.md` — backlog реализации текущего API-контракта.
 - `docs/adr/0001-bootstrap-architecture.md` — первичное архитектурное решение по стеку и границам системы.
 
 ## Быстрый старт
