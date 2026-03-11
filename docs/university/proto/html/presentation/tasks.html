@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Контур - Задачи</title>
+  <link rel="stylesheet" href="../prototype.css">
+</head>
+<body class="presentation-mode">
+  <div class="page">
+    <div class="prototype-window">
+      <div class="top-strip">
+        <div class="top-strip-left">
+          <div class="brand-box">[ Логотип ]</div>
+        </div>
+        <div class="top-actions">
+          <div class="search-box">[ Поиск задач ]</div>
+          <div class="mini-chip">[ Профиль ]</div>
+        </div>
+      </div>
+
+      <nav class="top-nav">
+        <a href="index.html">Главная</a>
+        <a class="is-active" href="tasks.html">Задачи</a>
+        <a href="docs.html">База знаний</a>
+        <a href="tasks.html">Активность</a>
+        <a href="docs.html">Документы</a>
+      </nav>
+
+      <div class="layout">
+        <div class="column">
+          <section class="panel">
+            <div class="panel-header">Фильтры</div>
+            <div class="panel-body plain-list">
+              <div>Статус: все</div>
+              <div>Приоритет: все</div>
+              <div>Исполнитель: все</div>
+              <div>Проект: Контур MVP</div>
+            </div>
+          </section>
+        </div>
+
+        <div class="column">
+          <div class="task-layout">
+            <div class="panel">
+              <div class="panel-header">Список задач</div>
+              <div class="panel-body task-list">
+                <button class="task-button" type="button" data-status="in-progress">
+                  <strong>Подготовить архитектурный отчёт</strong>
+                  <span class="task-meta">Макет строки списка задач</span>
+                </button>
+                <button class="task-button" type="button" data-status="todo">
+                  <strong>Сделать прототип интерфейса</strong>
+                  <span class="task-meta">Макет строки списка задач</span>
+                </button>
+                <button class="task-button" type="button" data-status="done">
+                  <strong>Подготовить спецификацию</strong>
+                  <span class="task-meta">Макет строки списка задач</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="detail-card">
+              <h3>Карточка задачи</h3>
+              <div class="wire-canvas">
+                <div class="ghost-line"></div>
+                <div class="ghost-line short"></div>
+                <div class="ghost-line"></div>
+                <div class="ghost-line short"></div>
+                <div class="ghost-line tiny"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="column">
+          <div class="instruction-box">
+            <h3>Подсказка</h3>
+            <p>На этом этапе экран задач нужен для показа расположения фильтров, списка элементов и области просмотра деталей.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

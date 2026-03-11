@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Контур - Главный экран</title>
+  <link rel="stylesheet" href="../prototype.css">
+</head>
+<body class="interactive-mode">
+  <div class="page">
+    <div class="prototype-window">
+      <div class="top-strip">
+        <div class="top-strip-left">
+          <div class="brand-box">Контур</div>
+        </div>
+        <div class="top-actions">
+          <div class="search-box">Поиск по задачам и документам</div>
+          <div class="mini-chip">Владелец workspace</div>
+        </div>
+      </div>
+
+      <nav class="top-nav">
+        <a class="is-active" href="index.html">Главная</a>
+        <a href="tasks.html">Задачи</a>
+        <a href="docs.html">База знаний</a>
+        <a href="tasks.html">Активность</a>
+        <a href="docs.html">Документы</a>
+      </nav>
+
+      <div class="layout">
+        <div class="column">
+          <section class="panel">
+            <div class="panel-header">Навигация workspace</div>
+            <div class="panel-body menu-list">
+              <a href="index.html">Обзор проекта</a>
+              <a href="tasks.html">Задачи и приоритеты</a>
+              <a href="docs.html">База знаний</a>
+              <a href="tasks.html">Активность команды</a>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">Быстрые разделы</div>
+            <div class="panel-body plain-list">
+              <div>Обзор недели</div>
+              <div>Критические задачи</div>
+              <div>Последние заметки</div>
+            </div>
+          </section>
+        </div>
+
+        <div class="column">
+          <div class="summary-grid">
+            <div class="summary-card">
+              <h3>Рабочие задачи</h3>
+              <p>Раздел открывает рабочую очередь, фильтрацию по статусам и карточку выбранной задачи.</p>
+              <div class="quick-actions" style="margin-top: 12px;">
+                <a class="quick-button" href="tasks.html">Открыть задачи</a>
+              </div>
+            </div>
+            <div class="summary-card">
+              <h3>Документация</h3>
+              <p>Раздел открывает базу знаний, где можно переключать статьи и просматривать инструкции по проекту.</p>
+              <div class="quick-actions" style="margin-top: 12px;">
+                <a class="quick-button" href="docs.html">Открыть базу знаний</a>
+              </div>
+            </div>
+            <div class="summary-card">
+              <h3>Контекст проекта</h3>
+              <p>На обзорном экране собраны быстрые ссылки, пояснения по структуре интерфейса и краткий контекст проекта.</p>
+            </div>
+          </div>
+
+          <div class="content-card">
+            <h3>Рабочая область проекта</h3>
+            <p>Главный экран показывает основные рабочие зоны проекта в едином контексте: задачи, знания, заметки и общую навигацию по проекту. Интерфейс ориентирован на быстрый переход в рабочий раздел без перегрузки деталями.</p>
+            <p>Для дальнейшего взаимодействия пользователь может перейти к задачам через верхнее меню или открыть материалы базы знаний в соседнем разделе.</p>
+          </div>
+        </div>
+
+        <div class="column">
+          <div class="instruction-box">
+            <h3>Контекстная инструкция</h3>
+            <p>Используйте верхнее меню или карточки быстрого перехода. Главный экран нужен как точка входа: он показывает доступные рабочие контуры и помогает быстро перейти к задачам и документации.</p>
+          </div>
+
+          <div class="instruction-box">
+            <h3>Следующее действие</h3>
+            <p>Откройте раздел задач, если нужно посмотреть очередь работ, либо перейдите в базу знаний, если требуется проектная документация.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

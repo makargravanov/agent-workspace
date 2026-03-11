@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Контур - Задачи</title>
+  <link rel="stylesheet" href="../prototype.css">
+  <script defer src="app.js"></script>
+</head>
+<body class="interactive-mode">
+  <div class="page">
+    <div class="prototype-window">
+      <div class="top-strip">
+        <div class="top-strip-left">
+          <div class="brand-box">Контур</div>
+        </div>
+        <div class="top-actions">
+          <div class="search-box">Найти задачу, заметку или проект</div>
+          <div class="mini-chip">Редактор проекта</div>
+        </div>
+      </div>
+
+      <nav class="top-nav">
+        <a href="index.html">Главная</a>
+        <a class="is-active" href="tasks.html">Задачи</a>
+        <a href="docs.html">База знаний</a>
+        <a href="tasks.html">Активность</a>
+        <a href="docs.html">Документы</a>
+      </nav>
+
+      <div class="layout">
+        <div class="column">
+          <section class="panel">
+            <div class="panel-header">Фильтры задач</div>
+            <div class="panel-body">
+              <div class="filter-row">
+                <button class="filter-button is-active" type="button" data-filter="all">Все</button>
+                <button class="filter-button" type="button" data-filter="todo">К выполнению</button>
+                <button class="filter-button" type="button" data-filter="in-progress">В работе</button>
+                <button class="filter-button" type="button" data-filter="done">Завершено</button>
+              </div>
+              <div class="instruction-box">
+                <h3>Контекстная инструкция</h3>
+                <p>Сначала выберите нужный фильтр, затем нажмите на задачу. В правой части экрана откроется краткая карточка с текущим статусом и описанием.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">Быстрые выборки</div>
+            <div class="panel-body plain-list">
+              <div>Мои задачи</div>
+              <div>Срок на этой неделе</div>
+              <div>Заблокированные задачи</div>
+            </div>
+          </section>
+        </div>
+
+        <div class="column">
+          <div class="task-layout">
+            <div class="panel">
+              <div class="panel-header">Список задач</div>
+              <div class="panel-body task-list">
+                <button class="task-button is-active" type="button" data-task-card data-status="in-progress" data-title="Подготовить прототип интерфейса" data-status-label="В работе" data-owner="Исполнитель: студент" data-description="Задача включает создание презентационных и интерактивных HTML-экранов для дальнейшего скриншотирования.">
+                  <strong>Подготовить прототип интерфейса</strong>
+                  <span class="task-meta">Статус: в работе • Приоритет: высокий</span>
+                </button>
+                <button class="task-button" type="button" data-task-card data-status="todo" data-title="Уточнить структуру экранов" data-status-label="К выполнению" data-owner="Исполнитель: координатор" data-description="Нужно согласовать состав разделов, верхнее меню и набор подсказок для каждого экрана интерфейса.">
+                  <strong>Уточнить структуру экранов</strong>
+                  <span class="task-meta">Статус: к выполнению • Приоритет: обычный</span>
+                </button>
+                <button class="task-button" type="button" data-task-card data-status="done" data-title="Подготовить отчет по архитектуре" data-status-label="Завершено" data-owner="Исполнитель: студент" data-description="Разделы по C4, UML, ERD и паттернам проектирования уже подготовлены и включены в отчет.">
+                  <strong>Подготовить отчет по архитектуре</strong>
+                  <span class="task-meta">Статус: завершено • Приоритет: высокий</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="detail-card">
+              <h3 id="task-title">Подготовить прототип интерфейса</h3>
+              <ul>
+                <li id="task-status">Статус: В работе</li>
+                <li id="task-owner">Исполнитель: студент</li>
+              </ul>
+              <p id="task-description" style="margin-top: 12px;">Задача включает создание презентационных и интерактивных HTML-экранов для дальнейшего скриншотирования.</p>
+              <div class="quick-actions" style="margin-top: 14px;">
+                <a class="quick-button" href="docs.html">Открыть связанную документацию</a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="column">
+          <div class="instruction-box">
+            <h3>Навигация</h3>
+            <p>Через верхнее меню можно перейти к обзору проекта и базе знаний. Внутри текущего экрана пользователь фильтрует задачи и просматривает информацию о выбранной карточке.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
