@@ -7,12 +7,13 @@ edition.workspace = true
 axum.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+time.workspace = true
 tokio.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
-time.workspace = true
 config.workspace = true
 futures.workspace = true
 
