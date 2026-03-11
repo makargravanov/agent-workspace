@@ -18,7 +18,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.6", features = ["request-id", "trace", "cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "sqlite", "migrate", "uuid", "time", "json"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "any", "postgres", "sqlite", "migrate", "uuid", "time", "json"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 config = "0.14"
 futures = "0.3"
