@@ -7,32 +7,32 @@ const highlights: Highlight[] = [
   {
     title: "Единое рабочее пространство",
     description:
-      "Задачи, планы, документы и заметки связываются в общую модель и не живут разрозненно по разным системам.",
+      "Задачи, группы задач, документы и заметки связываются в общую модель и не живут разрозненно по разным системам.",
   },
   {
     title: "Агенты как полноценные участники",
     description:
-      "MCP-утилита и API должны давать агентам контролируемый доступ к контексту, обновлениям планов и журналу изменений.",
+      "MCP-утилита и API должны давать агентам контролируемый доступ к контексту, задачам, заметкам и журналу изменений.",
   },
   {
-    title: "Гибридный поиск",
+    title: "Сначала полнотекстовый поиск",
     description:
-      "Точный поиск строится на PostgreSQL full-text search, а семантический слой закладывается через pgvector без отдельного стора на старте.",
+      "Ближайший приоритет - предсказуемый полнотекстовый поиск и прозрачный API-контракт; semantic search и embeddings отложены до стабилизации core-domain.",
   },
 ];
 
 const milestones = [
-  "Зафиксировать MVP, сущности и сценарии совместной работы",
-  "Спроектировать API, схему БД и аудит действий",
-  "Реализовать базовый цикл задач, заметок и документов",
-  "Добавить GitHub-интеграцию и MCP-инструменты для агентов",
+  "Зафиксировать схему БД и persistence adapter для Postgres и SQLite",
+  "Зафиксировать первичный API-контракт и access model",
+  "Реализовать migrations и foundation endpoints",
+  "Добавить GitHub read-only integration и MCP-инструменты",
 ];
 
 const components = [
   "Rust API на Axum",
   "Rust MCP-bridge как отдельная локальная утилита",
   "React + TypeScript интерфейс рабочего пространства",
-  "PostgreSQL + pgvector для хранения и поиска контекста",
+  "PostgreSQL как основной backend данных + SQLite local/dev профиль",
 ];
 
 export default function App() {
@@ -44,11 +44,14 @@ export default function App() {
         <p className="heroCopy">
           Стартовая версия репозитория уже закладывает модульный монолит, Docker-развертывание,
           PostgreSQL как основной источник истины и отдельную MCP-обертку для интеграции с IDE и CLI.
+          Ближайший шаг - зафиксировать текстовую схему БД и API-контракт, сохранив упрощенный
+          local/dev профиль на SQLite.
         </p>
         <div className="heroBadges">
           <span>Rust backend</span>
           <span>React + TypeScript</span>
-          <span>PostgreSQL + pgvector</span>
+          <span>PostgreSQL primary</span>
+          <span>SQLite local profile</span>
           <span>Docker-first</span>
         </div>
       </section>

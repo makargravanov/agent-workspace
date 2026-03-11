@@ -1,12 +1,30 @@
+# syntax=docker/dockerfile:1.7
+
 FROM rust:1.85-bookworm AS builder
 
 WORKDIR /app
 
-COPY Cargo.toml ./
+COPY Cargo.toml Cargo.lock ./
+COPY services/api/Cargo.toml ./services/api/Cargo.toml
+COPY tools/mcp-bridge/Cargo.toml ./tools/mcp-bridge/Cargo.toml
+
+RUN mkdir -p services/api/src tools/mcp-bridge/src \
+    && printf 'fn main() {}\n' > services/api/src/main.rs \
+    && printf 'fn main() {}\n' > tools/mcp-bridge/src/main.rs
+
+RUN --mount=type=cache,id=agent-workspace-cargo-registry,sharing=locked,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=agent-workspace-cargo-git,sharing=locked,target=/usr/local/cargo/git \
+    --mount=type=cache,id=agent-workspace-rust-target,sharing=locked,target=/app/target \
+    cargo build --locked --release -p agent-workspace-mcp
+
 COPY services ./services
 COPY tools ./tools
 
-RUN cargo build --release -p agent-workspace-mcp
+RUN --mount=type=cache,id=agent-workspace-cargo-registry,sharing=locked,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=agent-workspace-cargo-git,sharing=locked,target=/usr/local/cargo/git \
+    --mount=type=cache,id=agent-workspace-rust-target,sharing=locked,target=/app/target \
+    cargo build --locked --release -p agent-workspace-mcp \
+    && cp /app/target/release/agent-workspace-mcp /tmp/agent-workspace-mcp
 
 FROM debian:bookworm-slim
 
@@ -16,6 +34,6 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=builder /app/target/release/agent-workspace-mcp /usr/local/bin/agent-workspace-mcp
+COPY --from=builder /tmp/agent-workspace-mcp /usr/local/bin/agent-workspace-mcp
 
 CMD ["agent-workspace-mcp"]

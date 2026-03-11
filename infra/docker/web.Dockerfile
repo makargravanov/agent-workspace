@@ -1,10 +1,13 @@
+# syntax=docker/dockerfile:1.7
+
 FROM node:22-alpine
 
 WORKDIR /app
 
-COPY web/package.json ./package.json
+COPY web/package.json web/package-lock.json ./
 
-RUN npm install
+RUN --mount=type=cache,id=agent-workspace-npm-cache,sharing=locked,target=/root/.npm \
+	npm ci
 
 COPY web/ ./
 

@@ -43,7 +43,7 @@ async fn root() -> Json<ServiceOverview> {
         status: "bootstrap",
         architecture: "modular-monolith",
         primary_database: "postgresql",
-        search_strategy: "hybrid-postgres-full-text-plus-pgvector",
+        search_strategy: "full-text-first-semantic-deferred",
     })
 }
 
