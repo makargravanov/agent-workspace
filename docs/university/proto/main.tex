@@ -1,0 +1,36 @@
+\documentclass[a4paper,14pt]{extarticle}
+
+\usepackage{diplom_style}
+
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{2}
+
+\begin{document}
+ 
+% Титульный лист
+\input{content/titlepage.tex}
+
+% Содержание
+\begingroup
+\pagestyle{empty}
+\thispagestyle{empty}
+\begin{center}
+\normalfont\fontsize{14pt}{16pt}\selectfont Содержание
+\end{center}
+\vspace{24pt}
+\printplaincontents
+\clearpage
+\endgroup
+
+% Разделы спецификации
+\input{content/technology-stack.tex}
+\clearpage
+\input{content/modules.tex}
+\clearpage
+\input{content/input-output.tex}
+\clearpage
+\input{content/testing.tex}
+\clearpage
+\input{content/appendix.tex}
+
+\end{document}
