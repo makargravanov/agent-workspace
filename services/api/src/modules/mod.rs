@@ -1,0 +1,12 @@
+pub mod agent_access;
+pub mod auth;
+pub mod github_integration;
+pub mod knowledge_base;
+pub mod mcp_access;
+pub mod operator;
+pub mod search_indexing;
+pub mod system;
+pub mod task_management;
+pub mod task_structure;
+pub mod workspace_admin;
+pub mod workspace_core;
