@@ -16,6 +16,8 @@ sqlx.workspace = true
 uuid.workspace = true
 config.workspace = true
 futures.workspace = true
+hex.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
