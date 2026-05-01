@@ -1,3 +1,5 @@
+use crate::db::DatabaseBackend;
+
 /// Shared application state injected into every handler via `axum::extract::State`.
 ///
 /// The runtime uses `sqlx::AnyPool` so the same handler code can run against
@@ -5,11 +7,12 @@
 #[derive(Clone)]
 pub struct AppState {
     pub pool: sqlx::AnyPool,
+    pub db_backend: DatabaseBackend,
 }
 
 impl AppState {
-    pub fn new(pool: sqlx::AnyPool) -> Self {
-        Self { pool }
+    pub fn new(pool: sqlx::AnyPool, db_backend: DatabaseBackend) -> Self {
+        Self { pool, db_backend }
     }
 }
 
@@ -25,6 +28,9 @@ impl AppState {
             .connect_lazy("sqlite::memory:")
             .expect("lazy AnyPool creation should not fail at URL-parse time");
 
-        Self { pool }
+        Self {
+            pool,
+            db_backend: DatabaseBackend::Sqlite,
+        }
     }
 }

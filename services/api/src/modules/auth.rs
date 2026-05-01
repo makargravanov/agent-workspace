@@ -11,6 +11,7 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
+    db::DatabaseBackend,
     http::{
         actor::{hash_secret, utc_now_text, ActorContext, ActorKind, SESSION_COOKIE_NAME},
         error::ApiError,
@@ -156,9 +157,21 @@ async fn github_callback(
 
     let cfg = GithubOAuthConfig::from_env(&request_id.0)?;
     let profile = exchange_github_code(&cfg, &code, &request_id.0).await?;
-    let member_id = resolve_or_create_github_member(&state.pool, &profile, &request_id).await?;
-    let session_cookie_value =
-        create_human_session(&state.pool, &headers, &member_id, &request_id).await?;
+    let member_id = resolve_or_create_github_member(
+        &state.pool,
+        state.db_backend,
+        &profile,
+        &request_id,
+    )
+    .await?;
+    let session_cookie_value = create_human_session(
+        &state.pool,
+        state.db_backend,
+        &headers,
+        &member_id,
+        &request_id,
+    )
+    .await?;
 
     let mut response_headers = HeaderMap::new();
     response_headers.append(
@@ -201,10 +214,17 @@ async fn dev_login(
         &request_id,
     )?;
 
-    let workspace_id =
-        ensure_workspace(&state.pool, &workspace_slug, &workspace_name, &request_id).await?;
+    let workspace_id = ensure_workspace(
+        &state.pool,
+        state.db_backend,
+        &workspace_slug,
+        &workspace_name,
+        &request_id,
+    )
+    .await?;
     let member_id = ensure_member(
         &state.pool,
+        state.db_backend,
         &workspace_id,
         &external_subject,
         &display_name,
@@ -213,6 +233,7 @@ async fn dev_login(
     .await?;
     ensure_identity(
         &state.pool,
+        state.db_backend,
         &member_id,
         "dev",
         &external_subject,
@@ -221,9 +242,15 @@ async fn dev_login(
     )
     .await?;
 
-    let session_cookie_value =
-        create_human_session(&state.pool, &headers, &member_id, &request_id).await?;
-    let actor = actor_for_member(&state.pool, &member_id, &request_id).await?;
+    let session_cookie_value = create_human_session(
+        &state.pool,
+        state.db_backend,
+        &headers,
+        &member_id,
+        &request_id,
+    )
+    .await?;
+    let actor = actor_for_member(&state.pool, state.db_backend, &member_id, &request_id).await?;
 
     let mut response_headers = HeaderMap::new();
     response_headers.append(
@@ -271,7 +298,7 @@ async fn logout(
 ) -> Result<(StatusCode, HeaderMap, ApiResponse<SessionResponse>), ApiError> {
     if let Some(token) = session_cookie_from_headers(&headers) {
         let token_hash = hash_secret(&token);
-        let revoke_sql = if is_postgres(&state.pool).await {
+        let revoke_sql = if state.db_backend == DatabaseBackend::Postgres {
             "UPDATE human_sessions
              SET revoked_at = CAST($1 AS TIMESTAMPTZ)
              WHERE token_hash = $2 AND revoked_at IS NULL"
@@ -379,20 +406,24 @@ async fn exchange_github_code(
 
 async fn resolve_or_create_github_member(
     pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
     profile: &GithubProfile,
     request_id: &RequestId,
 ) -> Result<String, ApiError> {
     if let Some(member_id) = resolve_member_by_identity(
         pool,
+        db_backend,
         "github",
         &profile.provider_subject,
         request_id,
     )
     .await?
     {
-        sync_member_display_name(pool, &member_id, &profile.display_name, request_id).await?;
+        sync_member_display_name(pool, db_backend, &member_id, &profile.display_name, request_id)
+            .await?;
         ensure_identity(
             pool,
+            db_backend,
             &member_id,
             "github",
             &profile.provider_subject,
@@ -403,12 +434,19 @@ async fn resolve_or_create_github_member(
         return Ok(member_id);
     }
 
-    if let Some(member_id) =
-        resolve_member_by_external_subject(pool, &profile.provider_subject, request_id).await?
+    if let Some(member_id) = resolve_member_by_external_subject(
+        pool,
+        db_backend,
+        &profile.provider_subject,
+        request_id,
+    )
+    .await?
     {
-        sync_member_display_name(pool, &member_id, &profile.display_name, request_id).await?;
+        sync_member_display_name(pool, db_backend, &member_id, &profile.display_name, request_id)
+            .await?;
         ensure_identity(
             pool,
+            db_backend,
             &member_id,
             "github",
             &profile.provider_subject,
@@ -421,9 +459,11 @@ async fn resolve_or_create_github_member(
 
     let workspace_slug = github_workspace_slug(&profile.login, &profile.provider_subject);
     let workspace_name = format!("{} Workspace", profile.display_name);
-    let workspace_id = ensure_workspace(pool, &workspace_slug, &workspace_name, request_id).await?;
+    let workspace_id =
+        ensure_workspace(pool, db_backend, &workspace_slug, &workspace_name, request_id).await?;
     let member_id = ensure_member(
         pool,
+        db_backend,
         &workspace_id,
         &profile.provider_subject,
         &profile.display_name,
@@ -432,6 +472,7 @@ async fn resolve_or_create_github_member(
     .await?;
     ensure_identity(
         pool,
+        db_backend,
         &member_id,
         "github",
         &profile.provider_subject,
@@ -445,6 +486,7 @@ async fn resolve_or_create_github_member(
 
 async fn create_human_session(
     pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
     headers: &HeaderMap,
     member_id: &str,
     request_id: &RequestId,
@@ -465,7 +507,7 @@ async fn create_human_session(
         .filter(|value| !value.is_empty())
         .map(ToString::to_string);
 
-    let session_insert_sql = if is_postgres(pool).await {
+    let session_insert_sql = if db_backend == DatabaseBackend::Postgres {
         "INSERT INTO human_sessions
          (id, workspace_member_id, token_hash, expires_at, user_agent, ip_address)
          VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, CAST($4 AS TIMESTAMPTZ), $5, $6)"
@@ -494,10 +536,11 @@ async fn create_human_session(
 
 async fn actor_for_member(
     pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
     member_id: &str,
     request_id: &RequestId,
 ) -> Result<ActorContext, ApiError> {
-    let query = if is_postgres(pool).await {
+    let query = if db_backend == DatabaseBackend::Postgres {
         "SELECT CAST(workspace_id AS TEXT) AS workspace_id, role
          FROM workspace_members
          WHERE id = CAST($1 AS UUID) AND status = 'active'"
@@ -529,6 +572,7 @@ async fn actor_for_member(
 
 async fn ensure_workspace(
     pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
     slug: &str,
     name: &str,
     request_id: &RequestId,
@@ -547,7 +591,7 @@ async fn ensure_workspace(
     }
 
     let id = Uuid::new_v4().to_string();
-    let insert_sql = if is_postgres(pool).await {
+    let insert_sql = if db_backend == DatabaseBackend::Postgres {
         "INSERT INTO workspaces (id, slug, name) VALUES (CAST($1 AS UUID), $2, $3)"
     } else {
         "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3)"
@@ -569,12 +613,13 @@ async fn ensure_workspace(
 
 async fn ensure_member(
     pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
     workspace_id: &str,
     external_subject: &str,
     display_name: &str,
     request_id: &RequestId,
 ) -> Result<String, ApiError> {
-    let member_lookup_sql = if is_postgres(pool).await {
+    let member_lookup_sql = if db_backend == DatabaseBackend::Postgres {
         "SELECT CAST(id AS TEXT) AS id
          FROM workspace_members
          WHERE workspace_id = CAST($1 AS UUID) AND external_subject = $2"
@@ -598,7 +643,7 @@ async fn ensure_member(
     }
 
     let id = Uuid::new_v4().to_string();
-    let insert_sql = if is_postgres(pool).await {
+    let insert_sql = if db_backend == DatabaseBackend::Postgres {
         "INSERT INTO workspace_members
          (id, workspace_id, external_subject, display_name, role, status)
          VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, 'owner', 'active')"
@@ -625,11 +670,12 @@ async fn ensure_member(
 
 async fn resolve_member_by_identity(
     pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
     provider: &str,
     provider_subject: &str,
     request_id: &RequestId,
 ) -> Result<Option<String>, ApiError> {
-    let query = if is_postgres(pool).await {
+    let query = if db_backend == DatabaseBackend::Postgres {
         "SELECT CAST(hi.workspace_member_id AS TEXT) AS id
          FROM human_identities hi
          JOIN workspace_members wm ON wm.id = hi.workspace_member_id
@@ -662,6 +708,7 @@ async fn resolve_member_by_identity(
 
 async fn resolve_member_by_external_subject(
     pool: &sqlx::AnyPool,
+    _db_backend: DatabaseBackend,
     external_subject: &str,
     request_id: &RequestId,
 ) -> Result<Option<String>, ApiError> {
@@ -686,6 +733,7 @@ async fn resolve_member_by_external_subject(
 
 async fn ensure_identity(
     pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
     member_id: &str,
     provider: &str,
     provider_subject: &str,
@@ -707,7 +755,7 @@ async fn ensure_identity(
 
     match existing {
         Some((existing_member_id,)) if existing_member_id == member_id => {
-            let update_sql = if is_postgres(pool).await {
+            let update_sql = if db_backend == DatabaseBackend::Postgres {
                 "UPDATE human_identities
                  SET display_name = $1, updated_at = CAST($2 AS TIMESTAMPTZ)
                  WHERE provider = $3 AND provider_subject = $4"
@@ -736,7 +784,7 @@ async fn ensure_identity(
             "human identity is already linked to another workspace member",
         )),
         None => {
-            let insert_sql = if is_postgres(pool).await {
+            let insert_sql = if db_backend == DatabaseBackend::Postgres {
                 "INSERT INTO human_identities
                  (id, workspace_member_id, provider, provider_subject, display_name)
                  VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, $5)"
@@ -766,11 +814,12 @@ async fn ensure_identity(
 
 async fn sync_member_display_name(
     pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
     member_id: &str,
     display_name: &str,
     request_id: &RequestId,
 ) -> Result<(), ApiError> {
-    let update_sql = if is_postgres(pool).await {
+    let update_sql = if db_backend == DatabaseBackend::Postgres {
         "UPDATE workspace_members
          SET display_name = $1, updated_at = CAST($2 AS TIMESTAMPTZ)
          WHERE id = CAST($3 AS UUID)"
@@ -915,15 +964,6 @@ fn cookie_from_headers(headers: &HeaderMap, cookie_name: &str) -> Option<String>
     })
 }
 
-async fn is_postgres(pool: &sqlx::AnyPool) -> bool {
-    sqlx::query_scalar::<_, String>("SELECT sqlite_version()")
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .is_none()
-}
-
 fn utc_text(value: OffsetDateTime) -> String {
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
@@ -962,7 +1002,7 @@ mod tests {
     }
 
     async fn any_test_state() -> AppState {
-        AppState::new(crate::testing::any_test_pool().await)
+        AppState::new(crate::testing::any_test_pool().await, crate::db::DatabaseBackend::Sqlite)
     }
 
     fn build_test_app(state: AppState) -> axum::Router {

@@ -128,9 +128,18 @@ async fn create_workspace(
         )
     })?;
 
-    let membership_insert_sql = "INSERT INTO workspace_members
-         (id, workspace_id, external_subject, display_name, role, status)
-         VALUES ($1, $2, $3, $4, 'owner', 'active')";
+    let membership_insert_sql = match state.db_backend {
+        crate::db::DatabaseBackend::Postgres => {
+            "INSERT INTO workspace_members
+             (id, workspace_id, external_subject, display_name, role, status)
+             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, 'owner', 'active')"
+        }
+        crate::db::DatabaseBackend::Sqlite => {
+            "INSERT INTO workspace_members
+             (id, workspace_id, external_subject, display_name, role, status)
+             VALUES ($1, $2, $3, $4, 'owner', 'active')"
+        }
+    };
 
     sqlx::query(membership_insert_sql)
         .bind(Uuid::new_v4().to_string())
@@ -401,7 +410,7 @@ mod tests {
     const ACTOR_ID: &str = "x-actor-id";
 
     async fn test_router() -> Router {
-        routes().with_state(AppState::new(any_test_pool().await))
+        routes().with_state(AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite))
     }
 
     async fn seed_member(
@@ -462,7 +471,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_and_get_workspace() {
-        let state = AppState::new(any_test_pool().await);
+        let state = AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite);
         let member_id = seed_member(&state, "seed-ws", "Seed WS", "owner").await;
         let router = routes().with_state(state);
 
@@ -522,7 +531,7 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_workspace_slug_returns_422() {
-        let state = AppState::new(any_test_pool().await);
+        let state = AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite);
         let member_id = seed_member(&state, "seed-ws", "Seed WS", "owner").await;
         let router = routes().with_state(state);
         let body = r#"{"slug":"dup","name":"First"}"#;
@@ -559,7 +568,7 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_slug_returns_422() {
-        let state = AppState::new(any_test_pool().await);
+        let state = AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite);
         let member_id = seed_member(&state, "seed-ws", "Seed WS", "owner").await;
         let router = routes().with_state(state);
         let resp = router
@@ -581,7 +590,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_and_get_project() {
-        let state = AppState::new(any_test_pool().await);
+        let state = AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite);
         let router = routes().with_state(state.clone());
 
         // Seed workspace via repo
@@ -639,7 +648,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_nonexistent_project_returns_404() {
-        let state = AppState::new(any_test_pool().await);
+        let state = AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite);
         let router = routes().with_state(state.clone());
         let member_id = seed_member(&state, "ws2", "WS2", "owner").await;
 

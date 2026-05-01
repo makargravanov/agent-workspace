@@ -430,7 +430,7 @@ mod tests {
         .expect("insert project");
 
         TestContext {
-            router: build_router(AppState::new(pool)),
+            router: build_router(AppState::new(pool, crate::db::DatabaseBackend::Sqlite)),
             member_id,
             workspace_id: ws_id,
             project_id,

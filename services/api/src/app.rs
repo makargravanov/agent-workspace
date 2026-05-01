@@ -41,7 +41,7 @@ mod tests {
     use tower::ServiceExt;
 
     async fn test_app() -> axum::Router {
-        build_router(AppState::new(any_test_pool().await))
+        build_router(AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite))
     }
 
     #[tokio::test]

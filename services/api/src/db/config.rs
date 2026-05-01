@@ -1,10 +1,17 @@
 use std::env;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatabaseBackend {
+    Postgres,
+    Sqlite,
+}
+
 #[derive(Debug, Clone)]
 pub struct DatabaseConfig {
     pub url: String,
     pub max_connections: u32,
     pub min_connections: u32,
+    pub backend: DatabaseBackend,
 }
 
 #[derive(Debug)]
@@ -51,6 +58,11 @@ impl DatabaseConfig {
         };
 
         Ok(Self {
+            backend: if url.starts_with("sqlite") {
+                DatabaseBackend::Sqlite
+            } else {
+                DatabaseBackend::Postgres
+            },
             url,
             max_connections,
             min_connections,

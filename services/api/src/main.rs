@@ -1,10 +1,11 @@
 use agent_workspace_api::{
-    db::{build_any_pool, DatabaseConfig},
+    db::{build_any_pool, DatabaseBackend, DatabaseConfig},
     app::build_router,
     state::AppState,
     telemetry::init_tracing,
 };
 use std::env;
+use sqlx::migrate::MigrateError;
 use tracing::info;
 
 #[tokio::main]
@@ -24,17 +25,19 @@ async fn main() {
 
     // Run the correct migration set depending on which backend is active.
     // Postgres uses ./migrations, SQLite uses ./migrations_sqlite.
-    let db_url = &db_cfg.url;
-    if db_url.starts_with("sqlite") {
-        sqlx::migrate!("./migrations_sqlite")
-            .run(&pool)
-            .await
-            .expect("failed to run SQLite migrations");
-    } else {
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .expect("failed to run database migrations");
+    let migration_result = match db_cfg.backend {
+        DatabaseBackend::Sqlite => sqlx::migrate!("./migrations_sqlite").run(&pool).await,
+        DatabaseBackend::Postgres => sqlx::migrate!("./migrations").run(&pool).await,
+    };
+    if let Err(error) = migration_result {
+        match error {
+            MigrateError::VersionMismatch(version) => {
+                panic!(
+                    "failed to run database migrations: VersionMismatch({version}). Existing database migration checksums do not match repository files"
+                );
+            }
+            other => panic!("failed to run database migrations: {other}"),
+        }
     }
 
     info!("database migrations applied");
@@ -46,7 +49,7 @@ async fn main() {
 
     info!(address = %bind_address, "agent-workspace-api listening");
 
-    axum::serve(listener, build_router(AppState::new(pool)))
+    axum::serve(listener, build_router(AppState::new(pool, db_cfg.backend)))
         .await
         .expect("failed to serve API");
 }
