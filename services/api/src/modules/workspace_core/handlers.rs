@@ -5,13 +5,23 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::http::audit::{emit_audit, AuditEvent};
-use crate::http::error::ApiError;
-use crate::http::request_id::RequestId;
-use crate::http::response::{ApiResponse, Created, ListData, ResponseMeta};
+use crate::http::{
+    access::{require_authenticated_human, require_human_workspace_role, WorkspaceRole},
+    actor::ActorContext,
+    audit::{emit_audit, AuditEvent},
+    error::ApiError,
+    request_id::RequestId,
+    response::{ApiResponse, Created, ListData, ResponseMeta},
+};
 use crate::state::AppState;
 
 use super::{domain, repo};
+
+#[derive(sqlx::FromRow)]
+struct CurrentMemberIdentityRow {
+    external_subject: String,
+    display_name: String,
+}
 
 // ---------------------------------------------------------------------------
 // Router
@@ -38,9 +48,29 @@ pub fn routes() -> Router<AppState> {
 async fn list_workspaces(
     State(state): State<AppState>,
     request_id: RequestId,
+    actor: ActorContext,
 ) -> Result<ApiResponse<ListData<domain::Workspace>>, ApiError> {
-    let items = repo::list_workspaces(&state.pool).await.map_err(|e| {
-        tracing::error!(error = %e, "list_workspaces db error");
+    require_authenticated_human(&actor, &request_id.0)?;
+
+    let items = sqlx::query_as::<_, domain::Workspace>(
+        "SELECT DISTINCT
+             CAST(w.id AS TEXT) AS id,
+             w.slug,
+             w.name
+         FROM workspace_members current
+         JOIN workspace_members target
+           ON target.external_subject = current.external_subject
+         JOIN workspaces w ON w.id = target.workspace_id
+         WHERE current.id = $1
+           AND current.status = 'active'
+           AND target.status = 'active'
+         ORDER BY w.name, w.slug",
+    )
+    .bind(&actor.actor_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, actor_id = %actor.actor_id, "list_workspaces db error");
         ApiError::internal(&request_id.0, "failed to list workspaces")
     })?;
 
@@ -56,9 +86,10 @@ async fn list_workspaces(
 async fn create_workspace(
     State(state): State<AppState>,
     request_id: RequestId,
-    actor: crate::http::actor::ActorContext,
+    actor: ActorContext,
     Json(body): Json<domain::CreateWorkspaceRequest>,
 ) -> Result<Created<domain::Workspace>, ApiError> {
+    require_authenticated_human(&actor, &request_id.0)?;
     validate_slug(&body.slug, &request_id)?;
 
     let id = Uuid::new_v4();
@@ -77,6 +108,41 @@ async fn create_workspace(
                     ApiError::internal(&request_id.0, "failed to create workspace")
                 }
             })?;
+
+    let current_member = sqlx::query_as::<_, CurrentMemberIdentityRow>(
+        "SELECT external_subject, display_name
+         FROM workspace_members
+         WHERE id = $1 AND status = 'active'",
+    )
+    .bind(&actor.actor_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, actor_id = %actor.actor_id, "current member lookup failed");
+        ApiError::internal(&request_id.0, "failed to resolve current workspace member")
+    })?
+    .ok_or_else(|| {
+        ApiError::forbidden(
+            &request_id.0,
+            "human session is not linked to an active workspace member",
+        )
+    })?;
+
+    let membership_insert_sql = "INSERT INTO workspace_members
+         (id, workspace_id, external_subject, display_name, role, status)
+         VALUES ($1, $2, $3, $4, 'owner', 'active')";
+
+    sqlx::query(membership_insert_sql)
+        .bind(Uuid::new_v4().to_string())
+        .bind(&workspace.id)
+        .bind(current_member.external_subject)
+        .bind(current_member.display_name)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, workspace_id = %workspace.id, "creator membership insert failed");
+            ApiError::internal(&request_id.0, "failed to create creator workspace membership")
+        })?;
 
     emit_audit(AuditEvent {
         request_id: request_id.0.clone(),
@@ -99,6 +165,7 @@ async fn create_workspace(
 async fn get_workspace(
     State(state): State<AppState>,
     request_id: RequestId,
+    actor: ActorContext,
     Path(workspace_slug): Path<String>,
 ) -> Result<ApiResponse<domain::Workspace>, ApiError> {
     let workspace = repo::get_workspace_by_slug(&state.pool, &workspace_slug)
@@ -113,6 +180,15 @@ async fn get_workspace(
                 format!("workspace '{workspace_slug}' not found"),
             )
         })?;
+
+    require_human_workspace_role(
+        &state.pool,
+        &actor,
+        &workspace.id,
+        WorkspaceRole::Viewer,
+        &request_id.0,
+    )
+    .await?;
 
     Ok(ApiResponse {
         data: workspace,
@@ -130,9 +206,18 @@ async fn get_workspace(
 async fn list_projects(
     State(state): State<AppState>,
     request_id: RequestId,
+    actor: ActorContext,
     Path(workspace_slug): Path<String>,
 ) -> Result<ApiResponse<ListData<domain::Project>>, ApiError> {
     let workspace = resolve_workspace(&state, &request_id, &workspace_slug).await?;
+    require_human_workspace_role(
+        &state.pool,
+        &actor,
+        &workspace.id,
+        WorkspaceRole::Viewer,
+        &request_id.0,
+    )
+    .await?;
 
     let items = repo::list_projects(&state.pool, &workspace.id)
         .await
@@ -153,11 +238,19 @@ async fn list_projects(
 async fn create_project(
     State(state): State<AppState>,
     request_id: RequestId,
-    actor: crate::http::actor::ActorContext,
+    actor: ActorContext,
     Path(workspace_slug): Path<String>,
     Json(body): Json<domain::CreateProjectRequest>,
 ) -> Result<Created<domain::Project>, ApiError> {
     let workspace = resolve_workspace(&state, &request_id, &workspace_slug).await?;
+    require_human_workspace_role(
+        &state.pool,
+        &actor,
+        &workspace.id,
+        WorkspaceRole::Owner,
+        &request_id.0,
+    )
+    .await?;
     validate_slug(&body.slug, &request_id)?;
 
     let id = Uuid::new_v4();
@@ -206,9 +299,18 @@ async fn create_project(
 async fn get_project(
     State(state): State<AppState>,
     request_id: RequestId,
+    actor: ActorContext,
     Path((workspace_slug, project_slug)): Path<(String, String)>,
 ) -> Result<ApiResponse<domain::Project>, ApiError> {
     let workspace = resolve_workspace(&state, &request_id, &workspace_slug).await?;
+    require_human_workspace_role(
+        &state.pool,
+        &actor,
+        &workspace.id,
+        WorkspaceRole::Viewer,
+        &request_id.0,
+    )
+    .await?;
 
     let project = repo::get_project_by_slug(&state.pool, &workspace.id, &project_slug)
         .await
@@ -295,9 +397,45 @@ mod tests {
 
     const RID: &str = "x-request-id";
     const TEST_RID: &str = "test-request-id";
+    const ACTOR_KIND: &str = "x-actor-kind";
+    const ACTOR_ID: &str = "x-actor-id";
 
     async fn test_router() -> Router {
         routes().with_state(AppState::new(any_test_pool().await))
+    }
+
+    async fn seed_member(
+        state: &AppState,
+        workspace_slug: &str,
+        workspace_name: &str,
+        role: &str,
+    ) -> String {
+        let workspace_id = Uuid::new_v4().to_string();
+        let member_id = Uuid::new_v4().to_string();
+
+        sqlx::query("INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3)")
+            .bind(&workspace_id)
+            .bind(workspace_slug)
+            .bind(workspace_name)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO workspace_members
+             (id, workspace_id, external_subject, display_name, role, status)
+             VALUES ($1, $2, $3, $4, $5, 'active')",
+        )
+        .bind(&member_id)
+        .bind(&workspace_id)
+        .bind("test:owner-1")
+        .bind("Test Owner")
+        .bind(role)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        member_id
     }
 
     // ---- Workspace endpoints ----
@@ -309,6 +447,8 @@ mod tests {
             .oneshot(
                 Request::get("/workspaces")
                     .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, "ghost-member")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -322,7 +462,9 @@ mod tests {
 
     #[tokio::test]
     async fn create_and_get_workspace() {
-        let router = routes().with_state(AppState::new(any_test_pool().await));
+        let state = AppState::new(any_test_pool().await);
+        let member_id = seed_member(&state, "seed-ws", "Seed WS", "owner").await;
+        let router = routes().with_state(state);
 
         // Create
         let create_resp = router
@@ -330,6 +472,8 @@ mod tests {
             .oneshot(
                 Request::post("/workspaces")
                     .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"slug":"my-ws","name":"My Workspace"}"#))
                     .unwrap(),
@@ -348,6 +492,8 @@ mod tests {
             .oneshot(
                 Request::get("/workspaces/my-ws")
                     .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -376,7 +522,9 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_workspace_slug_returns_422() {
-        let router = routes().with_state(AppState::new(any_test_pool().await));
+        let state = AppState::new(any_test_pool().await);
+        let member_id = seed_member(&state, "seed-ws", "Seed WS", "owner").await;
+        let router = routes().with_state(state);
         let body = r#"{"slug":"dup","name":"First"}"#;
 
         let r1 = router
@@ -384,6 +532,8 @@ mod tests {
             .oneshot(
                 Request::post("/workspaces")
                     .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
                     .header("content-type", "application/json")
                     .body(Body::from(body))
                     .unwrap(),
@@ -396,6 +546,8 @@ mod tests {
             .oneshot(
                 Request::post("/workspaces")
                     .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
                     .header("content-type", "application/json")
                     .body(Body::from(body))
                     .unwrap(),
@@ -407,11 +559,15 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_slug_returns_422() {
-        let router = test_router().await;
+        let state = AppState::new(any_test_pool().await);
+        let member_id = seed_member(&state, "seed-ws", "Seed WS", "owner").await;
+        let router = routes().with_state(state);
         let resp = router
             .oneshot(
                 Request::post("/workspaces")
                     .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"slug":"Bad Slug!","name":"X"}"#))
                     .unwrap(),
@@ -429,9 +585,7 @@ mod tests {
         let router = routes().with_state(state.clone());
 
         // Seed workspace via repo
-        repo::insert_workspace(&state.pool, &Uuid::new_v4().to_string(), "ws", "WS")
-            .await
-            .unwrap();
+        let member_id = seed_member(&state, "ws", "WS", "owner").await;
 
         // Create project
         let resp = router
@@ -439,6 +593,8 @@ mod tests {
             .oneshot(
                 Request::post("/workspaces/ws/projects")
                     .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"slug":"proj-a","name":"Project A"}"#))
                     .unwrap(),
@@ -456,6 +612,8 @@ mod tests {
             .oneshot(
                 Request::get("/workspaces/ws/projects/proj-a")
                     .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -483,14 +641,14 @@ mod tests {
     async fn get_nonexistent_project_returns_404() {
         let state = AppState::new(any_test_pool().await);
         let router = routes().with_state(state.clone());
-        repo::insert_workspace(&state.pool, &Uuid::new_v4().to_string(), "ws2", "WS2")
-            .await
-            .unwrap();
+        let member_id = seed_member(&state, "ws2", "WS2", "owner").await;
 
         let resp = router
             .oneshot(
                 Request::get("/workspaces/ws2/projects/nope")
                     .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
                     .body(Body::empty())
                     .unwrap(),
             )

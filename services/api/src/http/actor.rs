@@ -125,13 +125,47 @@ fn actor_from_legacy_headers(parts: &Parts) -> ActorContext {
         .unwrap_or("anonymous")
         .to_string();
 
+    let workspace_id = parts
+        .headers
+        .get("x-workspace-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    let project_id = parts
+        .headers
+        .get("x-project-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    let role = parts
+        .headers
+        .get("x-actor-role")
+        .and_then(|v| v.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    let scopes = parts
+        .headers
+        .get("x-actor-scopes")
+        .and_then(|v| v.to_str().ok())
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+
     ActorContext {
         actor_kind,
         actor_id,
-        workspace_id: None,
-        project_id: None,
-        role: None,
-        scopes: Vec::new(),
+        workspace_id,
+        project_id,
+        role,
+        scopes,
     }
 }
 

@@ -8,6 +8,7 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::http::{
+    access::{require_project_access, WorkspaceRole},
     actor::{ActorContext, ActorKind},
     audit::{emit_audit, AuditEvent},
     error::ApiError,
@@ -152,13 +153,25 @@ async fn list_notes(
     Path((workspace_slug, project_slug)): Path<(String, String)>,
     RequestId(request_id): RequestId,
     pagination: PaginationParams,
+    actor: ActorContext,
 ) -> Result<ApiResponse<ListData<NoteResponse>>, ApiError> {
     let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
-    let (_workspace_id, project_id) = ids
+    let (workspace_id, project_id) = ids
         .ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &workspace_id,
+        &project_id,
+        WorkspaceRole::Viewer,
+        Some("notes:read"),
+        &request_id,
+    )
+    .await?;
 
     let (total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM notes WHERE project_id = $1")
         .bind(&project_id)
@@ -227,6 +240,17 @@ async fn create_note(
     let (workspace_id, project_id) = ids
         .ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
 
+    require_project_access(
+        &state.pool,
+        &actor,
+        &workspace_id,
+        &project_id,
+        WorkspaceRole::Editor,
+        Some("notes:write"),
+        &request_id,
+    )
+    .await?;
+
     let note_id = Uuid::new_v4().to_string();
     let author_type = match actor.actor_kind {
         ActorKind::Agent => AuthorType::Agent,
@@ -286,13 +310,25 @@ async fn get_note(
     State(state): State<AppState>,
     Path((workspace_slug, project_slug, note_id)): Path<(String, String, String)>,
     RequestId(request_id): RequestId,
+    actor: ActorContext,
 ) -> Result<ApiResponse<NoteResponse>, ApiError> {
     let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
-    let (_workspace_id, project_id) = ids
+    let (workspace_id, project_id) = ids
         .ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &workspace_id,
+        &project_id,
+        WorkspaceRole::Viewer,
+        Some("notes:read"),
+        &request_id,
+    )
+    .await?;
 
     let row: Option<NoteRow> = sqlx::query_as(
         "SELECT CAST(id AS TEXT) AS id, CAST(project_id AS TEXT) AS project_id, \
@@ -344,7 +380,14 @@ mod tests {
     use crate::app::build_router;
     use crate::testing::{any_test_pool, fixtures};
 
-    async fn setup() -> axum::Router {
+    struct TestContext {
+        router: axum::Router,
+        member_id: String,
+        workspace_id: String,
+        project_id: String,
+    }
+
+    async fn setup() -> TestContext {
         let pool = any_test_pool().await;
 
         let ws_id = Uuid::new_v4().to_string();
@@ -386,7 +429,12 @@ mod tests {
         .await
         .expect("insert project");
 
-        build_router(AppState::new(pool))
+        TestContext {
+            router: build_router(AppState::new(pool)),
+            member_id,
+            workspace_id: ws_id,
+            project_id,
+        }
     }
 
     fn notes_url() -> String {
@@ -415,12 +463,14 @@ mod tests {
 
     #[tokio::test]
     async fn list_notes_returns_empty_for_fresh_project() {
-        let router = setup().await;
-        let resp = router
+        let ctx = setup().await;
+        let resp = ctx.router
             .oneshot(
                 Request::builder()
                     .method("GET")
                     .uri(notes_url())
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &ctx.member_id)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -434,7 +484,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_note_returns_201_and_note_is_listable() {
-        let router = setup().await;
+        let ctx = setup().await;
 
         let payload = serde_json::json!({
             "kind": "decision",
@@ -443,7 +493,7 @@ mod tests {
             "agent_session_id": null
         });
 
-        let create_resp = router
+        let create_resp = ctx.router
             .clone()
             .oneshot(
                 Request::builder()
@@ -451,7 +501,7 @@ mod tests {
                     .uri(notes_url())
                     .header(http::header::CONTENT_TYPE, "application/json")
                     .header("x-actor-kind", "human")
-                    .header("x-actor-id", "member-001")
+                    .header("x-actor-id", &ctx.member_id)
                     .body(Body::from(serde_json::to_vec(&payload).unwrap()))
                     .unwrap(),
             )
@@ -468,11 +518,13 @@ mod tests {
             "workspace_member"
         );
 
-        let list_resp = router
+        let list_resp = ctx.router
             .oneshot(
                 Request::builder()
                     .method("GET")
                     .uri(notes_url())
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &ctx.member_id)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -484,7 +536,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_note_returns_200_with_correct_author_type() {
-        let router = setup().await;
+        let ctx = setup().await;
 
         let payload = serde_json::json!({
             "kind": "worklog",
@@ -493,7 +545,7 @@ mod tests {
             "agent_session_id": null
         });
 
-        let create_resp = router
+        let create_resp = ctx.router
             .clone()
             .oneshot(
                 Request::builder()
@@ -502,6 +554,9 @@ mod tests {
                     .header(http::header::CONTENT_TYPE, "application/json")
                     .header("x-actor-kind", "agent")
                     .header("x-actor-id", "agent-001")
+                    .header("x-workspace-id", &ctx.workspace_id)
+                    .header("x-project-id", &ctx.project_id)
+                    .header("x-actor-scopes", "notes:write,notes:read")
                     .body(Body::from(serde_json::to_vec(&payload).unwrap()))
                     .unwrap(),
             )
@@ -514,11 +569,16 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let get_resp = router
+        let get_resp = ctx.router
             .oneshot(
                 Request::builder()
                     .method("GET")
                     .uri(note_url(&note_id))
+                    .header("x-actor-kind", "agent")
+                    .header("x-actor-id", "agent-001")
+                    .header("x-workspace-id", &ctx.workspace_id)
+                    .header("x-project-id", &ctx.project_id)
+                    .header("x-actor-scopes", "notes:read")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -533,12 +593,14 @@ mod tests {
 
     #[tokio::test]
     async fn get_note_returns_404_for_unknown_id() {
-        let router = setup().await;
-        let resp = router
+        let ctx = setup().await;
+        let resp = ctx.router
             .oneshot(
                 Request::builder()
                     .method("GET")
                     .uri(note_url("00000000-0000-0000-0000-000000000000"))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &ctx.member_id)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -550,7 +612,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_note_returns_404_for_unknown_workspace_or_project() {
-        let router = setup().await;
+        let ctx = setup().await;
         let payload = serde_json::json!({
             "kind": "context",
             "title": null,
@@ -558,7 +620,7 @@ mod tests {
             "agent_session_id": null
         });
 
-        let resp = router
+        let resp = ctx.router
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -575,7 +637,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_note_rejects_empty_body_md() {
-        let router = setup().await;
+        let ctx = setup().await;
         let payload = serde_json::json!({
             "kind": "context",
             "title": null,
@@ -583,7 +645,7 @@ mod tests {
             "agent_session_id": null
         });
 
-        let resp = router
+        let resp = ctx.router
             .oneshot(
                 Request::builder()
                     .method("POST")

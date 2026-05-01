@@ -6,18 +6,6 @@ use super::domain::{Project, Workspace};
 // Workspaces
 // ---------------------------------------------------------------------------
 
-pub async fn list_workspaces(pool: &AnyPool) -> Result<Vec<Workspace>, sqlx::Error> {
-    sqlx::query_as::<_, Workspace>(
-        "SELECT CAST(id AS TEXT) AS id, slug, name, \
-                CAST(created_at AS TEXT) AS created_at, \
-                CAST(updated_at AS TEXT) AS updated_at \
-         FROM workspaces \
-         ORDER BY created_at DESC",
-    )
-    .fetch_all(pool)
-    .await
-}
-
 pub async fn get_workspace_by_slug(
     pool: &AnyPool,
     slug: &str,

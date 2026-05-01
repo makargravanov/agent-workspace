@@ -21,6 +21,13 @@ Add these repository secrets:
 
 The workflow is `.github/workflows/deploy-production.yml`. It runs on pushes to `master` and can also be started manually with `workflow_dispatch`.
 
+For GitHub OAuth in production, add these values to `/opt/agent-workspace/.env` on the server:
+
+- `GITHUB_CLIENT_ID`
+- `GITHUB_CLIENT_SECRET`
+- `GITHUB_OAUTH_REDIRECT_URI=https://wspace.cleadwine.ru/api/v1/auth/github/callback`
+- `GITHUB_OAUTH_SUCCESS_REDIRECT_PATH=/`
+
 ## First server setup
 
 Point DNS `A`/`AAAA` records for `wspace.cleadwine.ru` to the server.

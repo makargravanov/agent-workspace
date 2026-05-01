@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 use crate::{
     http::{
+        access::{require_project_access, WorkspaceRole},
         actor::ActorContext,
         audit::{emit_audit, AuditEvent},
         error::ApiError,
@@ -262,7 +263,7 @@ async fn list_tasks(
     Path((workspace_slug, project_slug)): Path<(String, String)>,
     Query(query): Query<ListTasksQuery>,
     RequestId(request_id): RequestId,
-    _actor: ActorContext,
+    actor: ActorContext,
 ) -> Result<ApiResponse<ListData<TaskDetail>>, ApiError> {
     let project = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
@@ -271,6 +272,17 @@ async fn list_tasks(
             ApiError::internal(&request_id, "database error")
         })?
         .ok_or_else(|| ApiError::not_found(&request_id, "project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &project.workspace_id,
+        &project.id,
+        WorkspaceRole::Viewer,
+        Some("tasks:read"),
+        &request_id,
+    )
+    .await?;
 
     let limit = query.limit.clamp(1, 200);
 
@@ -349,7 +361,7 @@ async fn get_task(
     State(state): State<AppState>,
     Path((workspace_slug, project_slug, task_id)): Path<(String, String, String)>,
     RequestId(request_id): RequestId,
-    _actor: ActorContext,
+    actor: ActorContext,
 ) -> Result<ApiResponse<TaskDetail>, ApiError> {
     let project = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
@@ -358,6 +370,17 @@ async fn get_task(
             ApiError::internal(&request_id, "database error")
         })?
         .ok_or_else(|| ApiError::not_found(&request_id, "project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &project.workspace_id,
+        &project.id,
+        WorkspaceRole::Viewer,
+        Some("tasks:read"),
+        &request_id,
+    )
+    .await?;
 
     let task = fetch_task_detail(&state.pool, &project.id, &task_id)
         .await
@@ -411,6 +434,17 @@ async fn create_task(
             ApiError::internal(&request_id, "database error")
         })?
         .ok_or_else(|| ApiError::not_found(&request_id, "project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &project.workspace_id,
+        &project.id,
+        WorkspaceRole::Editor,
+        None,
+        &request_id,
+    )
+    .await?;
 
     // ── Insert ────────────────────────────────────────────────────────────────
     let new_id = Uuid::new_v4().to_string();
@@ -492,6 +526,17 @@ async fn update_task_status(
             ApiError::internal(&request_id, "database error")
         })?
         .ok_or_else(|| ApiError::not_found(&request_id, "project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &project.workspace_id,
+        &project.id,
+        WorkspaceRole::Editor,
+        Some("tasks:write_status"),
+        &request_id,
+    )
+    .await?;
 
     // ── Update ────────────────────────────────────────────────────────────────
     let affected = sqlx::query(
