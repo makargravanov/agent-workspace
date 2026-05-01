@@ -28,7 +28,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -47,6 +47,7 @@ jobs:
             --exclude "target" \
             --exclude "web/node_modules" \
             --exclude "web/dist" \
+            --exclude "agent-workspace-deploy.tar" \
             -cf agent-workspace-deploy.tar .
 
       - name: Configure SSH
@@ -78,15 +79,26 @@ jobs:
         run: |
           SSH_OPTS="-i $HOME/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
           SSH_TARGET="$DEPLOY_USER@$DEPLOY_HOST"
-          ssh $SSH_OPTS -p "$DEPLOY_PORT" "$SSH_TARGET" \
+          retry() {
+            for attempt in 1 2 3; do
+              "$@" && return 0
+              if [ "$attempt" -lt 3 ]; then
+                sleep $((attempt * 5))
+              fi
+            done
+            return 1
+          }
+          retry ssh $SSH_OPTS -p "$DEPLOY_PORT" "$SSH_TARGET" \
             "mkdir -p '${REMOTE_APP_DIR}/releases/current' '${REMOTE_WEB_DIR}'"
-          scp $SSH_OPTS -P "$DEPLOY_PORT" agent-workspace-deploy.tar \
+          retry scp $SSH_OPTS -P "$DEPLOY_PORT" agent-workspace-deploy.tar \
             "$SSH_TARGET:/tmp/agent-workspace-deploy.tar"
-          ssh $SSH_OPTS -p "$DEPLOY_PORT" "$SSH_TARGET" \
+          retry ssh $SSH_OPTS -p "$DEPLOY_PORT" "$SSH_TARGET" \
             "rm -rf '${REMOTE_APP_DIR}/releases/current' && mkdir -p '${REMOTE_APP_DIR}/releases/current' && tar --warning=no-timestamp -xf /tmp/agent-workspace-deploy.tar -C '${REMOTE_APP_DIR}/releases/current' && rm /tmp/agent-workspace-deploy.tar"
-          rsync -az --delete -e "ssh $SSH_OPTS -p $DEPLOY_PORT" web/dist/ \
+          retry ssh $SSH_OPTS -p "$DEPLOY_PORT" "$SSH_TARGET" \
+            "find '${REMOTE_WEB_DIR}' -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +"
+          retry scp $SSH_OPTS -P "$DEPLOY_PORT" -r web/dist/. \
             "$SSH_TARGET:${REMOTE_WEB_DIR}/"
-          scp $SSH_OPTS -P "$DEPLOY_PORT" deploy/nginx/wspace.cleadwine.ru.conf \
+          retry scp $SSH_OPTS -P "$DEPLOY_PORT" deploy/nginx/wspace.cleadwine.ru.conf \
             "$SSH_TARGET:/tmp/wspace.cleadwine.ru.conf"
 
       - name: Restart backend and reload nginx
@@ -97,7 +109,16 @@ jobs:
           DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT || '22' }}
         run: |
           SSH_OPTS="-i $HOME/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
-          ssh $SSH_OPTS -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" <<'EOF'
+          retry() {
+            for attempt in 1 2 3; do
+              "$@" && return 0
+              if [ "$attempt" -lt 3 ]; then
+                sleep $((attempt * 5))
+              fi
+            done
+            return 1
+          }
+          retry ssh $SSH_OPTS -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" <<'EOF'
           set -euo pipefail
           cd /opt/agent-workspace/releases/current
 
