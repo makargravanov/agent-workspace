@@ -50,27 +50,31 @@ jobs:
 
       - name: Configure SSH
         run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          set -euo pipefail
+          : "${{ secrets.DEPLOY_HOST }}"
+          : "${{ secrets.DEPLOY_USER }}"
+          : "${{ secrets.DEPLOY_SSH_KEY }}"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> "$HOME/.ssh/known_hosts"
 
       - name: Upload release
         run: |
-          ssh -i ~/.ssh/deploy_key "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+          ssh -i "$HOME/.ssh/deploy_key" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
             "mkdir -p '${REMOTE_APP_DIR}/releases/current' '${REMOTE_WEB_DIR}'"
-          scp -i ~/.ssh/deploy_key agent-workspace-deploy.tar \
+          scp -i "$HOME/.ssh/deploy_key" agent-workspace-deploy.tar \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/agent-workspace-deploy.tar"
-          ssh -i ~/.ssh/deploy_key "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+          ssh -i "$HOME/.ssh/deploy_key" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
             "rm -rf '${REMOTE_APP_DIR}/releases/current' && mkdir -p '${REMOTE_APP_DIR}/releases/current' && tar --warning=no-timestamp -xf /tmp/agent-workspace-deploy.tar -C '${REMOTE_APP_DIR}/releases/current' && rm /tmp/agent-workspace-deploy.tar"
-          rsync -az --delete -e "ssh -i ~/.ssh/deploy_key" web/dist/ \
+          rsync -az --delete -e "ssh -i $HOME/.ssh/deploy_key" web/dist/ \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${REMOTE_WEB_DIR}/"
-          scp -i ~/.ssh/deploy_key deploy/nginx/wspace.cleadwine.ru.conf \
+          scp -i "$HOME/.ssh/deploy_key" deploy/nginx/wspace.cleadwine.ru.conf \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/wspace.cleadwine.ru.conf"
 
       - name: Restart backend and reload nginx
         run: |
-          ssh -i ~/.ssh/deploy_key "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" <<'EOF'
+          ssh -i "$HOME/.ssh/deploy_key" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" <<'EOF'
           set -euo pipefail
           cd /opt/agent-workspace/releases/current
 
