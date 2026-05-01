@@ -15,8 +15,9 @@ Add these repository secrets:
 | Secret | Value |
 | --- | --- |
 | `DEPLOY_HOST` | `cleadwine.ru` or the server IP |
+| `DEPLOY_SSH_PORT` | Optional SSH port, defaults to `22` |
 | `DEPLOY_USER` | SSH user with Docker and nginx permissions, currently likely `root` |
-| `DEPLOY_SSH_KEY` | Private SSH key accepted by the server |
+| `DEPLOY_SSH_PRIVATE_KEY` | Private SSH key accepted by the server |
 | `PRODUCTION_POSTGRES_PASSWORD` | Strong password for the production workspace Postgres user |
 
 The workflow is `.github/workflows/deploy-production.yml`. It runs on pushes to `master` and can also be started manually with `workflow_dispatch`.

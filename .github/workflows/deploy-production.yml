@@ -14,6 +14,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 20
 
     env:
       REMOTE_APP_DIR: /opt/agent-workspace
@@ -49,32 +50,54 @@ jobs:
             -cf agent-workspace-deploy.tar .
 
       - name: Configure SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT || '22' }}
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          : "${{ secrets.DEPLOY_HOST }}"
-          : "${{ secrets.DEPLOY_USER }}"
-          : "${{ secrets.DEPLOY_SSH_KEY }}"
+          : "${DEPLOY_HOST:?DEPLOY_HOST secret is required}"
+          : "${DEPLOY_USER:?DEPLOY_USER secret is required}"
+          : "${DEPLOY_PORT:?DEPLOY_SSH_PORT secret is required}"
+          : "${DEPLOY_SSH_PRIVATE_KEY:?DEPLOY_SSH_PRIVATE_KEY secret is required}"
           install -d -m 700 "$HOME/.ssh"
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
           chmod 600 "$HOME/.ssh/deploy_key"
-          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> "$HOME/.ssh/known_hosts"
+          if ! ssh-keyscan -p "$DEPLOY_PORT" -T 10 -H "$DEPLOY_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null; then
+            echo "Failed to fetch SSH host key from $DEPLOY_HOST:$DEPLOY_PORT. Check DEPLOY_HOST / DEPLOY_SSH_PORT and server reachability." >&2
+            exit 1
+          fi
 
       - name: Upload release
+        timeout-minutes: 3
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT || '22' }}
         run: |
-          ssh -i "$HOME/.ssh/deploy_key" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+          SSH_OPTS="-i $HOME/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
+          SSH_TARGET="$DEPLOY_USER@$DEPLOY_HOST"
+          ssh $SSH_OPTS -p "$DEPLOY_PORT" "$SSH_TARGET" \
             "mkdir -p '${REMOTE_APP_DIR}/releases/current' '${REMOTE_WEB_DIR}'"
-          scp -i "$HOME/.ssh/deploy_key" agent-workspace-deploy.tar \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/agent-workspace-deploy.tar"
-          ssh -i "$HOME/.ssh/deploy_key" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+          scp $SSH_OPTS -P "$DEPLOY_PORT" agent-workspace-deploy.tar \
+            "$SSH_TARGET:/tmp/agent-workspace-deploy.tar"
+          ssh $SSH_OPTS -p "$DEPLOY_PORT" "$SSH_TARGET" \
             "rm -rf '${REMOTE_APP_DIR}/releases/current' && mkdir -p '${REMOTE_APP_DIR}/releases/current' && tar --warning=no-timestamp -xf /tmp/agent-workspace-deploy.tar -C '${REMOTE_APP_DIR}/releases/current' && rm /tmp/agent-workspace-deploy.tar"
-          rsync -az --delete -e "ssh -i $HOME/.ssh/deploy_key" web/dist/ \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${REMOTE_WEB_DIR}/"
-          scp -i "$HOME/.ssh/deploy_key" deploy/nginx/wspace.cleadwine.ru.conf \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/wspace.cleadwine.ru.conf"
+          rsync -az --delete -e "ssh $SSH_OPTS -p $DEPLOY_PORT" web/dist/ \
+            "$SSH_TARGET:${REMOTE_WEB_DIR}/"
+          scp $SSH_OPTS -P "$DEPLOY_PORT" deploy/nginx/wspace.cleadwine.ru.conf \
+            "$SSH_TARGET:/tmp/wspace.cleadwine.ru.conf"
 
       - name: Restart backend and reload nginx
+        timeout-minutes: 3
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_SSH_PORT || '22' }}
         run: |
-          ssh -i "$HOME/.ssh/deploy_key" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" <<'EOF'
+          SSH_OPTS="-i $HOME/.ssh/deploy_key -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
+          ssh $SSH_OPTS -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" <<'EOF'
           set -euo pipefail
           cd /opt/agent-workspace/releases/current
 
