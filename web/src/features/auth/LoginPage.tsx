@@ -40,10 +40,7 @@ export function LoginPage() {
       <section className="authCard">
         <div className="authCardHeader">
           <p className="eyebrow">agent-workspace</p>
-          <h1>Вход в рабочее пространство</h1>
-          <p className="mutedText">
-            Основной вход выполняется через GitHub OAuth. Самостоятельной регистрации в интерфейсе нет.
-          </p>
+          <h1>Вход</h1>
         </div>
 
         <div className="authButtons">

@@ -1,4 +1,4 @@
-import type { TaskPriority, TaskStatus } from '../../api/types';
+import type { NoteKind, ProjectStatus, TaskPriority, TaskStatus } from '../../api/types';
 
 export function slugify(value: string): string {
   return value
@@ -38,5 +38,29 @@ export function priorityLabel(priority: TaskPriority): string {
       return 'Высокий';
     case 'critical':
       return 'Критический';
+  }
+}
+
+export function noteKindLabel(kind: NoteKind): string {
+  switch (kind) {
+    case 'context':
+      return 'Контекст';
+    case 'worklog':
+      return 'Ход работы';
+    case 'decision':
+      return 'Решение';
+    case 'result':
+      return 'Результат';
+  }
+}
+
+export function projectStatusLabel(status: ProjectStatus): string {
+  switch (status) {
+    case 'active':
+      return 'Активный';
+    case 'archived':
+      return 'Архивный';
+    default:
+      return status;
   }
 }

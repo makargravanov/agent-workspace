@@ -1,11 +1,11 @@
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useCreateProject, useProjects, useWorkspace } from '../../hooks/useWorkspaces';
-import { slugify } from '../../shared/lib/text';
+import { useSession } from '../../hooks/useSession';
+import { getErrorMessage } from '../../shared/lib/errors';
+import { projectStatusLabel, slugify } from '../../shared/lib/text';
 import { FullPageMessage } from '../../shared/ui/FullPageMessage';
 import { useAutoSlug } from '../../shared/ui/useAutoSlug';
-import { getErrorMessage } from '../../shared/lib/errors';
-import { useSession } from '../../hooks/useSession';
 
 export function WorkspacePage() {
   const { workspaceSlug = '' } = useParams();
@@ -19,14 +19,14 @@ export function WorkspacePage() {
   const { value: name, setValue: setName, slug, setSlug } = useAutoSlug();
 
   if (workspaceQuery.isLoading || projectsQuery.isLoading) {
-    return <FullPageMessage title="Загрузка workspace" embedded />;
+    return <FullPageMessage title="Загрузка рабочего пространства" embedded />;
   }
 
   if (workspaceQuery.error || !workspaceQuery.data) {
     return (
       <FullPageMessage
-        title="Workspace не найден"
-        description="Проверь slug workspace или доступ к нему."
+        title="Рабочее пространство не найдено"
+        description={workspaceQuery.error ? getErrorMessage(workspaceQuery.error) : undefined}
         embedded
       />
     );
@@ -52,7 +52,7 @@ export function WorkspacePage() {
     <section className="pageStack">
       <div className="pageHeader">
         <div>
-          <p className="eyebrow">Workspace</p>
+          <p className="eyebrow">Рабочее пространство</p>
           <h1>{workspaceQuery.data.name}</h1>
           <p className="mutedText">{workspaceQuery.data.slug}</p>
         </div>
@@ -62,7 +62,6 @@ export function WorkspacePage() {
         <div className="panelHeader">
           <div>
             <h2>Проекты</h2>
-            <p className="mutedText">Выбери проект или создай новый в этом workspace.</p>
           </div>
         </div>
 
@@ -76,7 +75,7 @@ export function WorkspacePage() {
               >
                 <div className="summaryRow">
                   <strong>{project.name}</strong>
-                  <span className="statusBadge">{project.status}</span>
+                  <span className="statusBadge">{projectStatusLabel(project.status)}</span>
                 </div>
                 <span className="mutedText">{project.slug}</span>
               </Link>
@@ -84,8 +83,7 @@ export function WorkspacePage() {
           </div>
         ) : (
           <div className="emptyPanel">
-            <h3>В этом workspace пока нет проектов</h3>
-            <p>Создай первый проект, чтобы перейти к задачам и заметкам.</p>
+            <h3>Проектов пока нет</h3>
           </div>
         )}
       </section>
@@ -95,13 +93,12 @@ export function WorkspacePage() {
           <div className="panelHeader">
             <div>
               <h2>Создать проект</h2>
-              <p className="mutedText">Форма создания проекта вынесена на уровень workspace.</p>
             </div>
           </div>
 
           <form className="formGrid" onSubmit={handleSubmit}>
             <label className="field">
-              <span>Название проекта</span>
+              <span>Название</span>
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
@@ -124,7 +121,7 @@ export function WorkspacePage() {
                 className="primaryButton"
                 disabled={createProjectMutation.isPending}
               >
-                {createProjectMutation.isPending ? 'Создание...' : 'Создать проект'}
+                {createProjectMutation.isPending ? 'Создание...' : 'Создать'}
               </button>
             </div>
           </form>

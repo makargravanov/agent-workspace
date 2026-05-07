@@ -1,5 +1,7 @@
 import { NavLink, Outlet, useParams } from 'react-router-dom';
 import { useProject, useWorkspace } from '../../hooks/useWorkspaces';
+import { getErrorMessage } from '../../shared/lib/errors';
+import { projectStatusLabel } from '../../shared/lib/text';
 import { FullPageMessage } from '../../shared/ui/FullPageMessage';
 
 export function ProjectRouteLayout() {
@@ -14,8 +16,8 @@ export function ProjectRouteLayout() {
   if (workspaceQuery.error || !workspaceQuery.data) {
     return (
       <FullPageMessage
-        title="Workspace не найден"
-        description="Проверь slug workspace или доступ к нему."
+        title="Рабочее пространство не найдено"
+        description={workspaceQuery.error ? getErrorMessage(workspaceQuery.error) : undefined}
         embedded
       />
     );
@@ -25,7 +27,7 @@ export function ProjectRouteLayout() {
     return (
       <FullPageMessage
         title="Проект не найден"
-        description="Проверь slug проекта или доступ к нему."
+        description={projectQuery.error ? getErrorMessage(projectQuery.error) : undefined}
         embedded
       />
     );
@@ -41,7 +43,7 @@ export function ProjectRouteLayout() {
             {workspaceQuery.data.name} / {projectQuery.data.slug}
           </p>
         </div>
-        <span className="statusBadge">{projectQuery.data.status}</span>
+        <span className="statusBadge">{projectStatusLabel(projectQuery.data.status)}</span>
       </div>
 
       <nav className="tabNav" aria-label="Навигация по проекту">

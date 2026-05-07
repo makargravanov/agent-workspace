@@ -13,6 +13,21 @@ function Run($Command) {
     Invoke-Expression $Command
 }
 
+$migrationFiles = @(
+    "services/api/migrations/*.sql",
+    "services/api/migrations_sqlite/*.sql"
+)
+foreach ($pattern in $migrationFiles) {
+    Get-ChildItem -Path $pattern | ForEach-Object {
+        $content = [System.IO.File]::ReadAllBytes($_.FullName)
+        for ($i = 0; $i -lt $content.Length - 1; $i++) {
+            if ($content[$i] -eq 13 -and $content[$i + 1] -eq 10) {
+                throw "CRLF line endings are not allowed in migration file $($_.FullName). Normalize to LF before deploy."
+            }
+        }
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($PostgresPassword)) {
     $PostgresPassword = -join ((48..57 + 65..90 + 97..122) | Get-Random -Count 32 | ForEach-Object {[char]$_})
 }

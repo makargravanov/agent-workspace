@@ -45,10 +45,44 @@ function buildUrl(
 async function parseResponse<T>(res: Response): Promise<T> {
   const json: unknown = await res.json();
   if (!res.ok) {
-    const errBody = (json as { error: ApiErrorBody }).error;
+    const errBody = normalizeErrorBody(json);
     throw new ApiError(res.status, errBody);
   }
   return json as T;
+}
+
+function normalizeErrorBody(json: unknown): ApiErrorBody {
+  const body = json as
+    | ApiErrorBody
+    | {
+        error?: ApiErrorBody;
+        error_code?: string;
+        request_id?: string;
+        message?: string;
+        details?: unknown | null;
+      };
+
+  if (body && typeof body === 'object') {
+    if ('error' in body && body.error) {
+      return body.error;
+    }
+
+    if ('error_code' in body && typeof body.error_code === 'string') {
+      return {
+        code: body.error_code,
+        message: typeof body.message === 'string' ? body.message : 'Request failed.',
+        details: 'details' in body ? body.details ?? null : null,
+        request_id: typeof body.request_id === 'string' ? body.request_id : 'unknown',
+      };
+    }
+  }
+
+  return {
+    code: 'internal_error',
+    message: 'Request failed.',
+    details: null,
+    request_id: 'unknown',
+  };
 }
 
 // ─── Request options ──────────────────────────────────────────────────────────
@@ -123,6 +157,6 @@ export async function apiDelete(path: string, opts?: RequestOptions): Promise<vo
   });
   if (!res.ok) {
     const json: unknown = await res.json();
-    throw new ApiError(res.status, (json as { error: ApiErrorBody }).error);
+    throw new ApiError(res.status, normalizeErrorBody(json));
   }
 }

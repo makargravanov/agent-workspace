@@ -37,6 +37,26 @@ jobs:
           npm --prefix web ci
           npm --prefix web run build
 
+      - name: Verify migration line endings
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          roots = [
+              Path("services/api/migrations"),
+              Path("services/api/migrations_sqlite"),
+          ]
+          offenders = []
+          for root in roots:
+              for path in sorted(root.glob("*.sql")):
+                  data = path.read_bytes()
+                  if b"\r\n" in data:
+                      offenders.append(str(path))
+          if offenders:
+              raise SystemExit(
+                  "CRLF line endings are not allowed in sqlx migrations:\n" + "\n".join(offenders)
+              )
+          PY
+
       - name: Pack backend source
         run: |
           tar \

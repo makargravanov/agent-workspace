@@ -28,7 +28,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
           <div className="headerRow">
             <h1>Рабочее пространство</h1>
             <Link className="headerLink" to="/workspaces">
-              Workspaces
+              Рабочие пространства
             </Link>
           </div>
         </div>

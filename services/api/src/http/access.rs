@@ -57,7 +57,7 @@ pub async fn require_human_workspace_role(
          FROM workspace_members current
          JOIN workspace_members target
            ON target.external_subject = current.external_subject
-         WHERE current.id = $1
+         WHERE CAST(current.id AS TEXT) = $1
            AND current.status = 'active'
            AND CAST(target.workspace_id AS TEXT) = $2
            AND target.status = 'active'

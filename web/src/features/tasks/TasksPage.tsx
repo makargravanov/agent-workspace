@@ -43,7 +43,6 @@ export function TasksPage() {
         <div className="panelHeader">
           <div>
             <h2>Создать задачу</h2>
-            <p className="mutedText">Форма создания задач вынесена на отдельную страницу.</p>
           </div>
         </div>
 
@@ -76,7 +75,7 @@ export function TasksPage() {
               value={description.value}
               onChange={(event) => description.setValue(event.target.value)}
               rows={4}
-              placeholder="Что именно должно быть сделано."
+              placeholder="Что должно быть сделано."
             />
           </label>
           <div className="formActions">
@@ -85,7 +84,7 @@ export function TasksPage() {
               className="primaryButton"
               disabled={createTaskMutation.isPending}
             >
-              {createTaskMutation.isPending ? 'Создание...' : 'Создать задачу'}
+              {createTaskMutation.isPending ? 'Создание...' : 'Создать'}
             </button>
           </div>
         </form>
@@ -99,7 +98,6 @@ export function TasksPage() {
         <div className="panelHeader">
           <div>
             <h2>Список задач</h2>
-            <p className="mutedText">Изменение статуса выполняется прямо в списке.</p>
           </div>
         </div>
 
@@ -121,7 +119,6 @@ export function TasksPage() {
           {tasks.length === 0 ? (
             <div className="emptyPanel">
               <h3>Задач пока нет</h3>
-              <p>Создай первую задачу через форму выше.</p>
             </div>
           ) : null}
         </div>

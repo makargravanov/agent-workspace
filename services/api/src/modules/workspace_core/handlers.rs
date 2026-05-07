@@ -52,11 +52,28 @@ async fn list_workspaces(
 ) -> Result<ApiResponse<ListData<domain::Workspace>>, ApiError> {
     require_authenticated_human(&actor, &request_id.0)?;
 
-    let items = sqlx::query_as::<_, domain::Workspace>(
+    let query = if state.db_backend == crate::db::DatabaseBackend::Postgres {
         "SELECT DISTINCT
              CAST(w.id AS TEXT) AS id,
              w.slug,
-             w.name
+             w.name,
+             CAST(w.created_at AS TEXT) AS created_at,
+             CAST(w.updated_at AS TEXT) AS updated_at
+         FROM workspace_members current
+         JOIN workspace_members target
+           ON target.external_subject = current.external_subject
+         JOIN workspaces w ON w.id = target.workspace_id
+         WHERE current.id = CAST($1 AS UUID)
+           AND current.status = 'active'
+           AND target.status = 'active'
+         ORDER BY w.name, w.slug"
+    } else {
+        "SELECT DISTINCT
+             CAST(w.id AS TEXT) AS id,
+             w.slug,
+             w.name,
+             CAST(w.created_at AS TEXT) AS created_at,
+             CAST(w.updated_at AS TEXT) AS updated_at
          FROM workspace_members current
          JOIN workspace_members target
            ON target.external_subject = current.external_subject
@@ -64,15 +81,17 @@ async fn list_workspaces(
          WHERE current.id = $1
            AND current.status = 'active'
            AND target.status = 'active'
-         ORDER BY w.name, w.slug",
-    )
-    .bind(&actor.actor_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!(error = %e, actor_id = %actor.actor_id, "list_workspaces db error");
-        ApiError::internal(&request_id.0, "failed to list workspaces")
-    })?;
+         ORDER BY w.name, w.slug"
+    };
+
+    let items = sqlx::query_as::<_, domain::Workspace>(query)
+        .bind(&actor.actor_id)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, actor_id = %actor.actor_id, "list_workspaces db error");
+            ApiError::internal(&request_id.0, "failed to list workspaces")
+        })?;
 
     Ok(ApiResponse {
         data: ListData { items, next_cursor: None },
@@ -93,21 +112,26 @@ async fn create_workspace(
     validate_slug(&body.slug, &request_id)?;
 
     let id = Uuid::new_v4();
-    let workspace =
-        repo::insert_workspace(&state.pool, &id.to_string(), &body.slug, &body.name)
-            .await
-            .map_err(|e| match e {
-                sqlx::Error::Database(ref db_err) if is_unique_violation(db_err.as_ref()) => {
-                    ApiError::validation_error(
-                        &request_id.0,
-                        format!("workspace slug '{}' is already taken", body.slug),
-                    )
-                }
-                other => {
-                    tracing::error!(error = %other, "create_workspace db error");
-                    ApiError::internal(&request_id.0, "failed to create workspace")
-                }
-            })?;
+    let workspace = repo::insert_workspace(
+        &state.pool,
+        state.db_backend,
+        &id.to_string(),
+        &body.slug,
+        &body.name,
+    )
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::Database(ref db_err) if is_unique_violation(db_err.as_ref()) => {
+            ApiError::validation_error(
+                &request_id.0,
+                format!("workspace slug '{}' is already taken", body.slug),
+            )
+        }
+        other => {
+            tracing::error!(error = %other, "create_workspace db error");
+            ApiError::internal(&request_id.0, "failed to create workspace")
+        }
+    })?;
 
     let current_member = sqlx::query_as::<_, CurrentMemberIdentityRow>(
         "SELECT external_subject, display_name
@@ -265,6 +289,7 @@ async fn create_project(
     let id = Uuid::new_v4();
     let project = repo::insert_project(
         &state.pool,
+        state.db_backend,
         &id.to_string(),
         &workspace.id,
         &body.slug,

@@ -56,3 +56,7 @@ Optional parameters:
 ```
 
 The script generates a Postgres password on first run if `/opt/agent-workspace/.env` does not exist on the server. Later deploys keep that persistent server-side `.env`.
+
+## Migration checksums
+
+`sqlx` migration checksums are byte-sensitive. PostgreSQL and SQLite migration files under `services/api/migrations` and `services/api/migrations_sqlite` must stay on LF line endings. The repository pins this in `.gitattributes`, and both the GitHub workflow and local deploy script fail fast if a migration contains CRLF.

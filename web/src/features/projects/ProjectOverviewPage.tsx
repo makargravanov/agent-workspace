@@ -1,7 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { useNotes } from '../../hooks/useNotes';
 import { useTasks } from '../../hooks/useTasks';
-import { statusLabel } from '../../shared/lib/text';
+import { noteKindLabel, statusLabel } from '../../shared/lib/text';
 
 export function ProjectOverviewPage() {
   const { workspaceSlug = '', projectSlug = '' } = useParams();
@@ -38,7 +38,6 @@ export function ProjectOverviewPage() {
           <div className="panelHeader">
             <div>
               <h2>Последние задачи</h2>
-              <p className="mutedText">Короткий обзор без формы создания.</p>
             </div>
             <Link
               className="secondaryButton"
@@ -60,8 +59,7 @@ export function ProjectOverviewPage() {
             ))}
             {tasks.length === 0 ? (
               <div className="emptyPanel">
-                <h3>Пока нет задач</h3>
-                <p>Создание задач находится на отдельной странице задач.</p>
+                <h3>Задач пока нет</h3>
               </div>
             ) : null}
           </div>
@@ -71,7 +69,6 @@ export function ProjectOverviewPage() {
           <div className="panelHeader">
             <div>
               <h2>Последние заметки</h2>
-              <p className="mutedText">Короткий обзор по knowledge base проекта.</p>
             </div>
             <Link
               className="secondaryButton"
@@ -86,15 +83,14 @@ export function ProjectOverviewPage() {
               <article key={note.id} className="entityCard">
                 <div className="summaryRow">
                   <strong>{note.title ?? 'Без названия'}</strong>
-                  <span className="statusBadge">{note.kind}</span>
+                  <span className="statusBadge">{noteKindLabel(note.kind)}</span>
                 </div>
                 <p>{note.body_md}</p>
               </article>
             ))}
             {notes.length === 0 ? (
               <div className="emptyPanel">
-                <h3>Пока нет заметок</h3>
-                <p>Создание заметок находится на отдельной странице заметок.</p>
+                <h3>Заметок пока нет</h3>
               </div>
             ) : null}
           </div>

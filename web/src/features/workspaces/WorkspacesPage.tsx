@@ -13,13 +13,13 @@ export function WorkspacesPage() {
   const { value: name, setValue: setName, slug, setSlug } = useAutoSlug();
 
   if (workspacesQuery.isLoading) {
-    return <FullPageMessage title="Загрузка workspace" embedded />;
+    return <FullPageMessage title="Загрузка рабочих пространств" embedded />;
   }
 
   if (workspacesQuery.error) {
     return (
       <FullPageMessage
-        title="Не удалось загрузить workspace"
+        title="Не удалось загрузить рабочие пространства"
         description={getErrorMessage(workspacesQuery.error)}
         embedded
       />
@@ -46,19 +46,15 @@ export function WorkspacesPage() {
     <section className="pageStack">
       <div className="pageHeader">
         <div>
-          <p className="eyebrow">Workspaces</p>
+          <p className="eyebrow">Рабочие пространства</p>
           <h1>Доступные рабочие пространства</h1>
-          <p className="mutedText">
-            Выбор workspace вынесен на отдельную страницу, без смешивания с задачами и заметками.
-          </p>
         </div>
       </div>
 
       <section className="panel">
         <div className="panelHeader">
           <div>
-            <h2>Список workspace</h2>
-            <p className="mutedText">Каждый workspace ведет на отдельный экран с проектами.</p>
+            <h2>Список</h2>
           </div>
         </div>
 
@@ -77,8 +73,7 @@ export function WorkspacesPage() {
           </div>
         ) : (
           <div className="emptyPanel">
-            <h3>Пока нет доступных workspace</h3>
-            <p>Создай первый workspace через форму ниже.</p>
+            <h3>Рабочих пространств пока нет</h3>
           </div>
         )}
       </section>
@@ -86,14 +81,13 @@ export function WorkspacesPage() {
       <section className="panel">
         <div className="panelHeader">
           <div>
-            <h2>Создать workspace</h2>
-            <p className="mutedText">Форма создания вынесена в отдельный экран `/workspaces`.</p>
+            <h2>Создать рабочее пространство</h2>
           </div>
         </div>
 
         <form className="formGrid" onSubmit={handleSubmit}>
           <label className="field">
-            <span>Название workspace</span>
+            <span>Название</span>
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -116,7 +110,7 @@ export function WorkspacesPage() {
               className="primaryButton"
               disabled={createWorkspaceMutation.isPending}
             >
-              {createWorkspaceMutation.isPending ? 'Создание...' : 'Создать workspace'}
+              {createWorkspaceMutation.isPending ? 'Создание...' : 'Создать'}
             </button>
           </div>
         </form>

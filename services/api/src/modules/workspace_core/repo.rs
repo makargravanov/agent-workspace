@@ -1,5 +1,7 @@
 use sqlx::AnyPool;
 
+use crate::db::DatabaseBackend;
+
 use super::domain::{Project, Workspace};
 
 // ---------------------------------------------------------------------------
@@ -24,13 +26,21 @@ pub async fn get_workspace_by_slug(
 
 pub async fn insert_workspace(
     pool: &AnyPool,
+    db_backend: DatabaseBackend,
     id: &str,
     slug: &str,
     name: &str,
 ) -> Result<Workspace, sqlx::Error> {
-    sqlx::query(
-        "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3)",
-    )
+    let query = match db_backend {
+        DatabaseBackend::Postgres => {
+            "INSERT INTO workspaces (id, slug, name) VALUES (CAST($1 AS UUID), $2, $3)"
+        }
+        DatabaseBackend::Sqlite => {
+            "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3)"
+        }
+    };
+
+    sqlx::query(query)
     .bind(id)
     .bind(slug)
     .bind(name)
@@ -86,15 +96,24 @@ pub async fn get_project_by_slug(
 
 pub async fn insert_project(
     pool: &AnyPool,
+    db_backend: DatabaseBackend,
     id: &str,
     workspace_id: &str,
     slug: &str,
     name: &str,
 ) -> Result<Project, sqlx::Error> {
-    sqlx::query(
-        "INSERT INTO projects (id, workspace_id, slug, name, status) \
-         VALUES ($1, $2, $3, $4, 'active')",
-    )
+    let query = match db_backend {
+        DatabaseBackend::Postgres => {
+            "INSERT INTO projects (id, workspace_id, slug, name, status) \
+             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, 'active')"
+        }
+        DatabaseBackend::Sqlite => {
+            "INSERT INTO projects (id, workspace_id, slug, name, status) \
+             VALUES ($1, $2, $3, $4, 'active')"
+        }
+    };
+
+    sqlx::query(query)
     .bind(id)
     .bind(workspace_id)
     .bind(slug)

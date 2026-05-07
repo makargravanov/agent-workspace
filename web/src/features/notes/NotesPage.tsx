@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import type { NoteKind } from '../../api/types';
 import { useCreateNote, useNotes } from '../../hooks/useNotes';
 import { getErrorMessage } from '../../shared/lib/errors';
-import { formatDateTime } from '../../shared/lib/text';
+import { formatDateTime, noteKindLabel } from '../../shared/lib/text';
 import { useFieldState } from '../../shared/ui/useFieldState';
 
 const NOTE_KINDS: NoteKind[] = ['context', 'worklog', 'decision', 'result'];
@@ -42,7 +42,6 @@ export function NotesPage() {
         <div className="panelHeader">
           <div>
             <h2>Создать заметку</h2>
-            <p className="mutedText">Заметки работают с реальным knowledge-base endpoint.</p>
           </div>
         </div>
 
@@ -55,7 +54,7 @@ export function NotesPage() {
             >
               {NOTE_KINDS.map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {noteKindLabel(item)}
                 </option>
               ))}
             </select>
@@ -74,7 +73,7 @@ export function NotesPage() {
               value={body.value}
               onChange={(event) => body.setValue(event.target.value)}
               rows={6}
-              placeholder="Сохрани контекст в markdown."
+              placeholder="Сохраните текст заметки."
               required
             />
           </label>
@@ -84,7 +83,7 @@ export function NotesPage() {
               className="primaryButton"
               disabled={createNoteMutation.isPending}
             >
-              {createNoteMutation.isPending ? 'Сохранение...' : 'Создать заметку'}
+              {createNoteMutation.isPending ? 'Сохранение...' : 'Создать'}
             </button>
           </div>
         </form>
@@ -98,7 +97,6 @@ export function NotesPage() {
         <div className="panelHeader">
           <div>
             <h2>Список заметок</h2>
-            <p className="mutedText">Заметки выводятся отдельно от overview-экрана.</p>
           </div>
         </div>
 
@@ -107,7 +105,7 @@ export function NotesPage() {
             <article key={note.id} className="entityCard">
               <div className="summaryRow">
                 <strong>{note.title ?? 'Без названия'}</strong>
-                <span className="statusBadge">{note.kind}</span>
+                <span className="statusBadge">{noteKindLabel(note.kind)}</span>
               </div>
               <p>{note.body_md}</p>
               <div className="summaryRow">
@@ -119,7 +117,6 @@ export function NotesPage() {
           {notes.length === 0 ? (
             <div className="emptyPanel">
               <h3>Заметок пока нет</h3>
-              <p>Создай первую заметку через форму выше.</p>
             </div>
           ) : null}
         </div>
