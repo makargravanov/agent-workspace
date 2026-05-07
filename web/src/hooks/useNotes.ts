@@ -7,6 +7,7 @@ export function useNotes(workspaceSlug: string, projectSlug: string, pagination?
   return useQuery({
     queryKey: queryKeys.notes(workspaceSlug, projectSlug),
     queryFn: ({ signal }) => listNotes(workspaceSlug, projectSlug, pagination, { signal }),
+    enabled: workspaceSlug.length > 0 && projectSlug.length > 0,
   });
 }
 
@@ -14,6 +15,7 @@ export function useNote(workspaceSlug: string, projectSlug: string, noteId: stri
   return useQuery({
     queryKey: queryKeys.note(workspaceSlug, projectSlug, noteId),
     queryFn: ({ signal }) => getNote(workspaceSlug, projectSlug, noteId, { signal }),
+    enabled: workspaceSlug.length > 0 && projectSlug.length > 0 && noteId.length > 0,
   });
 }
 

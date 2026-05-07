@@ -24,6 +24,7 @@ export function useTaskGroups(workspaceSlug: string, projectSlug: string) {
   return useQuery({
     queryKey: queryKeys.taskGroups(workspaceSlug, projectSlug),
     queryFn: ({ signal }) => listTaskGroups(workspaceSlug, projectSlug, undefined, { signal }),
+    enabled: workspaceSlug.length > 0 && projectSlug.length > 0,
   });
 }
 
@@ -31,6 +32,7 @@ export function useTaskGroup(workspaceSlug: string, projectSlug: string, groupId
   return useQuery({
     queryKey: queryKeys.taskGroup(workspaceSlug, projectSlug, groupId),
     queryFn: ({ signal }) => getTaskGroup(workspaceSlug, projectSlug, groupId, { signal }),
+    enabled: workspaceSlug.length > 0 && projectSlug.length > 0 && groupId.length > 0,
   });
 }
 
@@ -67,6 +69,7 @@ export function useTasks(workspaceSlug: string, projectSlug: string, params?: Li
   return useQuery({
     queryKey: queryKeys.tasks(workspaceSlug, projectSlug),
     queryFn: ({ signal }) => listTasks(workspaceSlug, projectSlug, params, { signal }),
+    enabled: workspaceSlug.length > 0 && projectSlug.length > 0,
   });
 }
 
@@ -74,6 +77,7 @@ export function useTask(workspaceSlug: string, projectSlug: string, taskId: stri
   return useQuery({
     queryKey: queryKeys.task(workspaceSlug, projectSlug, taskId),
     queryFn: ({ signal }) => getTask(workspaceSlug, projectSlug, taskId, { signal }),
+    enabled: workspaceSlug.length > 0 && projectSlug.length > 0 && taskId.length > 0,
   });
 }
 

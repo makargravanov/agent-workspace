@@ -1,0 +1,41 @@
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom';
+import { LoginPage } from '../features/auth/LoginPage';
+import { RootRedirect, RequireAuth } from '../features/auth/RequireAuth';
+import { ProjectOverviewPage } from '../features/projects/ProjectOverviewPage';
+import { ProjectRouteLayout } from '../features/projects/ProjectRouteLayout';
+import { WorkspacePage } from '../features/projects/WorkspacePage';
+import { NotesPage } from '../features/notes/NotesPage';
+import { TasksPage } from '../features/tasks/TasksPage';
+import { WorkspacesPage } from '../features/workspaces/WorkspacesPage';
+import { AppFrame } from '../shared/ui/AppFrame';
+
+function ProtectedAppLayout() {
+  return (
+    <RequireAuth>
+      <AppFrame>
+        <Outlet />
+      </AppFrame>
+    </RequireAuth>
+  );
+}
+
+export function AppRouter() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<RootRedirect />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<ProtectedAppLayout />}>
+          <Route path="/workspaces" element={<WorkspacesPage />} />
+          <Route path="/workspaces/:workspaceSlug" element={<WorkspacePage />} />
+          <Route path="/workspaces/:workspaceSlug/projects/:projectSlug" element={<ProjectRouteLayout />}>
+            <Route index element={<ProjectOverviewPage />} />
+            <Route path="tasks" element={<TasksPage />} />
+            <Route path="notes" element={<NotesPage />} />
+          </Route>
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
