@@ -133,11 +133,20 @@ async fn create_workspace(
         }
     })?;
 
-    let current_member = sqlx::query_as::<_, CurrentMemberIdentityRow>(
-        "SELECT external_subject, display_name
-         FROM workspace_members
-         WHERE id = $1 AND status = 'active'",
-    )
+    let current_member_lookup_sql = match state.db_backend {
+        crate::db::DatabaseBackend::Postgres => {
+            "SELECT external_subject, display_name
+             FROM workspace_members
+             WHERE id = CAST($1 AS UUID) AND status = 'active'"
+        }
+        crate::db::DatabaseBackend::Sqlite => {
+            "SELECT external_subject, display_name
+             FROM workspace_members
+             WHERE id = $1 AND status = 'active'"
+        }
+    };
+
+    let current_member = sqlx::query_as::<_, CurrentMemberIdentityRow>(current_member_lookup_sql)
     .bind(&actor.actor_id)
     .fetch_optional(&state.pool)
     .await
