@@ -278,7 +278,14 @@ mod postgres_smoke {
         serde_json::from_slice(&bytes).expect("body should be json")
     }
 
-    async fn seed_owner_member(pool: &sqlx::AnyPool) -> (String, String) {
+    async fn seed_member(
+        pool: &sqlx::AnyPool,
+        workspace_slug: &str,
+        workspace_name: &str,
+        external_subject: &str,
+        display_name: &str,
+        role: &str,
+    ) -> (String, String) {
         let workspace_id = Uuid::new_v4().to_string();
         let member_id = Uuid::new_v4().to_string();
 
@@ -287,8 +294,8 @@ mod postgres_smoke {
              VALUES (CAST($1 AS UUID), $2, $3)",
         )
         .bind(&workspace_id)
-        .bind("seed-ws")
-        .bind("Seed Workspace")
+        .bind(workspace_slug)
+        .bind(workspace_name)
         .execute(pool)
         .await
         .expect("insert workspace");
@@ -296,17 +303,72 @@ mod postgres_smoke {
         sqlx::query(
             "INSERT INTO workspace_members
              (id, workspace_id, external_subject, display_name, role, status)
-             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, 'owner', 'active')",
+             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, $5, 'active')",
         )
         .bind(&member_id)
         .bind(&workspace_id)
-        .bind("test:owner-1")
-        .bind("Test Owner")
+        .bind(external_subject)
+        .bind(display_name)
+        .bind(role)
         .execute(pool)
         .await
         .expect("insert workspace member");
 
         (workspace_id, member_id)
+    }
+
+    async fn fetch_id_by_slug(pool: &sqlx::AnyPool, table: &str, slug: &str) -> String {
+        let query = match table {
+            "workspaces" => "SELECT CAST(id AS TEXT) AS id FROM workspaces WHERE slug = $1",
+            "projects" => "SELECT CAST(id AS TEXT) AS id FROM projects WHERE slug = $1",
+            other => panic!("unsupported table for slug lookup: {other}"),
+        };
+
+        let row: (String,) = sqlx::query_as(query)
+            .bind(slug)
+            .fetch_one(pool)
+            .await
+            .expect("fetch id by slug");
+        row.0
+    }
+
+    async fn fetch_workspace_membership(
+        pool: &sqlx::AnyPool,
+        workspace_id: &str,
+    ) -> (String, String, String) {
+        sqlx::query_as(
+            "SELECT role, external_subject, display_name
+             FROM workspace_members
+             WHERE workspace_id = CAST($1 AS UUID) AND status = 'active'",
+        )
+        .bind(workspace_id)
+        .fetch_one(pool)
+        .await
+        .expect("fetch workspace membership")
+    }
+
+    async fn insert_task_group(
+        pool: &sqlx::AnyPool,
+        workspace_id: &str,
+        project_id: &str,
+        title: &str,
+    ) -> String {
+        let task_group_id = Uuid::new_v4().to_string();
+
+        sqlx::query(
+            "INSERT INTO task_groups
+             (id, workspace_id, project_id, kind, title, status, priority)
+             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), CAST($3 AS UUID), 'epic', $4, 'active', 0)",
+        )
+        .bind(&task_group_id)
+        .bind(workspace_id)
+        .bind(project_id)
+        .bind(title)
+        .execute(pool)
+        .await
+        .expect("insert task group");
+
+        task_group_id
     }
 
     #[tokio::test]
@@ -316,7 +378,15 @@ mod postgres_smoke {
             return;
         };
 
-        let (_workspace_id, member_id) = seed_owner_member(&db.pool).await;
+        let (_workspace_id, member_id) = seed_member(
+            &db.pool,
+            "seed-ws",
+            "Seed Workspace",
+            "test:owner-1",
+            "Test Owner",
+            "owner",
+        )
+        .await;
         let app = build_router(AppState::new(db.pool.clone(), DatabaseBackend::Postgres));
 
         let list_workspaces = app
@@ -332,6 +402,12 @@ mod postgres_smoke {
             .await
             .expect("response");
         assert_eq!(list_workspaces.status(), StatusCode::OK);
+        let list_workspaces_body = body_json(list_workspaces.into_body()).await;
+        assert_eq!(list_workspaces_body["data"]["items"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            list_workspaces_body["data"]["items"][0]["slug"],
+            "seed-ws"
+        );
 
         let create_workspace = app
             .clone()
@@ -351,6 +427,13 @@ mod postgres_smoke {
             .expect("response");
         assert_eq!(create_workspace.status(), StatusCode::CREATED);
 
+        let child_workspace_id = fetch_id_by_slug(&db.pool, "workspaces", "pg-child").await;
+        let (role, external_subject, display_name) =
+            fetch_workspace_membership(&db.pool, &child_workspace_id).await;
+        assert_eq!(role, "owner");
+        assert_eq!(external_subject, "test:owner-1");
+        assert_eq!(display_name, "Test Owner");
+
         let create_project = app
             .clone()
             .oneshot(
@@ -369,7 +452,11 @@ mod postgres_smoke {
             .expect("response");
         assert_eq!(create_project.status(), StatusCode::CREATED);
 
-        let create_task = app
+        let project_id = fetch_id_by_slug(&db.pool, "projects", "pg-proj").await;
+        let task_group_id =
+            insert_task_group(&db.pool, &child_workspace_id, &project_id, "Grouped Tasks").await;
+
+        let grouped_task = app
             .clone()
             .oneshot(
                 Request::builder()
@@ -382,6 +469,42 @@ mod postgres_smoke {
                         json!({
                             "title": "Postgres task",
                             "description_md": "Created in postgres smoke test",
+                            "priority": "normal",
+                            "group_id": task_group_id,
+                            "assignee_type": "workspace_member",
+                            "assignee_id": member_id
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(grouped_task.status(), StatusCode::CREATED);
+        let grouped_task_body = body_json(grouped_task.into_body()).await;
+        let grouped_task_id = grouped_task_body["data"]["id"]
+            .as_str()
+            .expect("task id")
+            .to_string();
+        assert_eq!(grouped_task_body["data"]["group_id"].as_str().unwrap(), task_group_id);
+        assert_eq!(
+            grouped_task_body["data"]["assignee_id"].as_str().unwrap(),
+            member_id
+        );
+
+        let second_task = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/pg-child/projects/pg-proj/tasks")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({
+                            "title": "Postgres task 2",
+                            "description_md": "Created in postgres smoke test",
                             "priority": "normal"
                         })
                         .to_string(),
@@ -390,30 +513,41 @@ mod postgres_smoke {
             )
             .await
             .expect("response");
-        assert_eq!(create_task.status(), StatusCode::CREATED);
-        let task_body = body_json(create_task.into_body()).await;
-        let task_id = task_body["data"]["id"].as_str().expect("task id").to_string();
+        assert_eq!(second_task.status(), StatusCode::CREATED);
+        let second_task_body = body_json(second_task.into_body()).await;
+        let second_task_id = second_task_body["data"]["id"]
+            .as_str()
+            .expect("task id")
+            .to_string();
 
         let list_tasks = app
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/api/v1/workspaces/pg-child/projects/pg-proj/tasks")
+                    .uri(format!(
+                        "/api/v1/workspaces/pg-child/projects/pg-proj/tasks?status=todo&group_id={task_group_id}&assignee_id={member_id}"
+                    ))
                     .header("x-actor-kind", "human")
                     .header("x-actor-id", &member_id)
                     .body(Body::empty())
                     .expect("request"),
-            )
-            .await
-            .expect("response");
+        )
+        .await
+        .expect("response");
         assert_eq!(list_tasks.status(), StatusCode::OK);
+        let list_tasks_body = body_json(list_tasks.into_body()).await;
+        let items = list_tasks_body["data"]["items"]
+            .as_array()
+            .expect("tasks list items");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"].as_str().unwrap(), grouped_task_id);
 
         let update_task = app
             .clone()
             .oneshot(
                 Request::builder()
                     .method("PATCH")
-                    .uri(format!("/api/v1/workspaces/pg-child/projects/pg-proj/tasks/{task_id}/status"))
+                    .uri(format!("/api/v1/workspaces/pg-child/projects/pg-proj/tasks/{second_task_id}/status"))
                     .header(header::CONTENT_TYPE, "application/json")
                     .header("x-actor-kind", "human")
                     .header("x-actor-id", &member_id)
@@ -423,6 +557,15 @@ mod postgres_smoke {
             .await
             .expect("response");
         assert_eq!(update_task.status(), StatusCode::OK);
+
+        let (status,): (String,) = sqlx::query_as(
+            "SELECT status FROM tasks WHERE CAST(id AS TEXT) = $1",
+        )
+        .bind(&second_task_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("fetch updated task status");
+        assert_eq!(status, "done");
 
         let create_note = app
             .clone()
@@ -442,9 +585,9 @@ mod postgres_smoke {
                         .to_string(),
                     ))
                     .expect("request"),
-            )
-            .await
-            .expect("response");
+        )
+        .await
+        .expect("response");
         assert_eq!(create_note.status(), StatusCode::CREATED);
 
         let list_notes = app
@@ -459,6 +602,105 @@ mod postgres_smoke {
             .await
             .expect("response");
         assert_eq!(list_notes.status(), StatusCode::OK);
+        let list_notes_body = body_json(list_notes.into_body()).await;
+        assert_eq!(list_notes_body["data"]["items"].as_array().unwrap().len(), 1);
+
+        db.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_detached_human_cannot_create_workspace() {
+        let Some(db) = postgres_test_db().await else {
+            eprintln!("skipping postgres smoke test: TEST_DATABASE_URL is not set");
+            return;
+        };
+
+        let app = build_router(AppState::new(db.pool.clone(), DatabaseBackend::Postgres));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", Uuid::new_v4().to_string())
+                    .body(Body::from(
+                        json!({ "slug": "detached", "name": "Detached" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        db.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_workspaces_are_listed_for_shared_identity() {
+        let Some(db) = postgres_test_db().await else {
+            eprintln!("skipping postgres smoke test: TEST_DATABASE_URL is not set");
+            return;
+        };
+
+        let (_workspace_id, member_id) = seed_member(
+            &db.pool,
+            "seed-ws",
+            "Seed Workspace",
+            "test:shared-identity",
+            "Test Shared",
+            "owner",
+        )
+        .await;
+
+        let second_workspace_id = Uuid::new_v4().to_string();
+        let second_member_id = Uuid::new_v4().to_string();
+
+        sqlx::query("INSERT INTO workspaces (id, slug, name) VALUES (CAST($1 AS UUID), $2, $3)")
+            .bind(&second_workspace_id)
+            .bind("other-ws")
+            .bind("Other Workspace")
+            .execute(&db.pool)
+            .await
+            .expect("insert second workspace");
+
+        sqlx::query(
+            "INSERT INTO workspace_members
+             (id, workspace_id, external_subject, display_name, role, status)
+             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, 'viewer', 'active')",
+        )
+        .bind(&second_member_id)
+        .bind(&second_workspace_id)
+        .bind("test:shared-identity")
+        .bind("Test Shared")
+        .execute(&db.pool)
+        .await
+        .expect("insert second membership");
+
+        let app = build_router(AppState::new(db.pool.clone(), DatabaseBackend::Postgres));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/workspaces")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response.into_body()).await;
+        let slugs: Vec<String> = body["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["slug"].as_str().unwrap().to_string())
+            .collect();
+
+        assert!(slugs.contains(&"seed-ws".to_string()));
+        assert!(slugs.contains(&"other-ws".to_string()));
 
         db.cleanup().await;
     }
