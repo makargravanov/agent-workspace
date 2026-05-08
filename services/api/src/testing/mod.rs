@@ -9,7 +9,9 @@
 
 pub mod fixtures;
 
+use reqwest::Url;
 use sqlx::SqlitePool;
+use uuid::Uuid;
 
 /// Build an in-memory SQLite pool, apply the SQLite migration set, and enable
 /// foreign key enforcement for the connection.
@@ -62,6 +64,52 @@ pub async fn any_test_pool() -> sqlx::AnyPool {
         .expect("SQLite migrations should apply without error");
 
     pool
+}
+
+pub struct PostgresTestDb {
+    pub pool: sqlx::AnyPool,
+    admin_url: String,
+    db_name: String,
+}
+
+impl PostgresTestDb {
+    pub async fn cleanup(self) {
+        self.pool.close().await;
+
+        if let Ok(admin_pool) = sqlx::PgPool::connect(&self.admin_url).await {
+            let drop_sql = format!(r#"DROP DATABASE IF EXISTS "{}" WITH (FORCE)"#, self.db_name);
+            let _ = sqlx::query(&drop_sql).execute(&admin_pool).await;
+            admin_pool.close().await;
+        }
+    }
+}
+
+pub async fn postgres_test_db() -> Option<PostgresTestDb> {
+    let admin_url = std::env::var("TEST_DATABASE_URL").ok()?;
+    sqlx::any::install_default_drivers();
+
+    let admin_pool = sqlx::PgPool::connect(&admin_url).await.ok()?;
+    let db_name = format!("agent_workspace_test_{}", Uuid::new_v4().simple());
+    let create_sql = format!(r#"CREATE DATABASE "{}""#, db_name);
+    sqlx::query(&create_sql).execute(&admin_pool).await.ok()?;
+    admin_pool.close().await;
+
+    let mut db_url = Url::parse(&admin_url).ok()?;
+    db_url.set_path(&format!("/{}", db_name));
+
+    let pool = sqlx::any::AnyPoolOptions::new()
+        .max_connections(4)
+        .connect(db_url.as_str())
+        .await
+        .ok()?;
+
+    sqlx::migrate!("./migrations").run(&pool).await.ok()?;
+
+    Some(PostgresTestDb {
+        pool,
+        admin_url,
+        db_name,
+    })
 }
 
 
@@ -208,5 +256,196 @@ mod smoke {
 
         assert_eq!(kind, "epic");
         pool.close().await;
+    }
+}
+
+#[cfg(test)]
+mod postgres_smoke {
+    use super::postgres_test_db;
+    use crate::{app::build_router, db::DatabaseBackend, state::AppState};
+    use axum::{
+        body::Body,
+        http::{header, Request, StatusCode},
+    };
+    use serde_json::{json, Value};
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    async fn body_json(body: Body) -> Value {
+        let bytes = axum::body::to_bytes(body, usize::MAX)
+            .await
+            .expect("body should be readable");
+        serde_json::from_slice(&bytes).expect("body should be json")
+    }
+
+    async fn seed_owner_member(pool: &sqlx::AnyPool) -> (String, String) {
+        let workspace_id = Uuid::new_v4().to_string();
+        let member_id = Uuid::new_v4().to_string();
+
+        sqlx::query(
+            "INSERT INTO workspaces (id, slug, name)
+             VALUES (CAST($1 AS UUID), $2, $3)",
+        )
+        .bind(&workspace_id)
+        .bind("seed-ws")
+        .bind("Seed Workspace")
+        .execute(pool)
+        .await
+        .expect("insert workspace");
+
+        sqlx::query(
+            "INSERT INTO workspace_members
+             (id, workspace_id, external_subject, display_name, role, status)
+             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, 'owner', 'active')",
+        )
+        .bind(&member_id)
+        .bind(&workspace_id)
+        .bind("test:owner-1")
+        .bind("Test Owner")
+        .execute(pool)
+        .await
+        .expect("insert workspace member");
+
+        (workspace_id, member_id)
+    }
+
+    #[tokio::test]
+    async fn postgres_workspace_project_task_note_flow() {
+        let Some(db) = postgres_test_db().await else {
+            eprintln!("skipping postgres smoke test: TEST_DATABASE_URL is not set");
+            return;
+        };
+
+        let (_workspace_id, member_id) = seed_owner_member(&db.pool).await;
+        let app = build_router(AppState::new(db.pool.clone(), DatabaseBackend::Postgres));
+
+        let list_workspaces = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/workspaces")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(list_workspaces.status(), StatusCode::OK);
+
+        let create_workspace = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({ "slug": "pg-child", "name": "PG Child" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_workspace.status(), StatusCode::CREATED);
+
+        let create_project = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/pg-child/projects")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({ "slug": "pg-proj", "name": "PG Project" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_project.status(), StatusCode::CREATED);
+
+        let create_task = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/pg-child/projects/pg-proj/tasks")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({
+                            "title": "Postgres task",
+                            "description_md": "Created in postgres smoke test",
+                            "priority": "normal"
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_task.status(), StatusCode::CREATED);
+        let task_body = body_json(create_task.into_body()).await;
+        let task_id = task_body["data"]["id"].as_str().expect("task id").to_string();
+
+        let update_task = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/api/v1/workspaces/pg-child/projects/pg-proj/tasks/{task_id}/status"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(json!({ "status": "done" }).to_string()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(update_task.status(), StatusCode::OK);
+
+        let create_note = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/pg-child/projects/pg-proj/notes")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({
+                            "kind": "decision",
+                            "title": "Postgres note",
+                            "body_md": "Created in postgres smoke test"
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_note.status(), StatusCode::CREATED);
+
+        let list_notes = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/workspaces/pg-child/projects/pg-proj/notes")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(list_notes.status(), StatusCode::OK);
+
+        db.cleanup().await;
     }
 }
