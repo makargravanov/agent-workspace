@@ -20,6 +20,7 @@ use sqlx::QueryBuilder;
 use uuid::Uuid;
 
 use crate::{
+    db::DatabaseBackend,
     http::{
         access::{require_project_access, WorkspaceRole},
         actor::ActorContext,
@@ -160,12 +161,12 @@ fn push_task_filters(builder: &mut QueryBuilder<'_, sqlx::Any>, query: &ListTask
     }
 
     if let Some(group_id) = query.group_id.clone() {
-        builder.push(" AND t.group_id = ");
+        builder.push(" AND CAST(t.group_id AS TEXT) = ");
         builder.push_bind(group_id);
     }
 
     if let Some(assignee_id) = query.assignee_id.clone() {
-        builder.push(" AND t.assignee_id = ");
+        builder.push(" AND CAST(t.assignee_id AS TEXT) = ");
         builder.push_bind(assignee_id);
     }
 }
@@ -242,7 +243,7 @@ async fn fetch_task_detail(
                    AND blocker.status NOT IN ('done', 'cancelled')
              ) THEN 1 ELSE 0 END AS blocked
          FROM tasks t
-         WHERE t.id = $1 AND t.project_id = $2",
+         WHERE CAST(t.id AS TEXT) = $1 AND CAST(t.project_id AS TEXT) = $2",
     )
     .bind(task_id)
     .bind(project_id)
@@ -308,7 +309,7 @@ async fn list_tasks(
                    AND blocker.status NOT IN ('done', 'cancelled')
              ) THEN 1 ELSE 0 END AS blocked
          FROM tasks t
-         WHERE t.project_id = ",
+         WHERE CAST(t.project_id AS TEXT) = ",
     );
     select_query.push_bind(project.id.clone());
     push_task_filters(&mut select_query, &query);
@@ -327,7 +328,7 @@ async fn list_tasks(
     let mut count_query = QueryBuilder::<sqlx::Any>::new(
         "SELECT COUNT(*)
          FROM tasks t
-         WHERE t.project_id = ",
+         WHERE CAST(t.project_id AS TEXT) = ",
     );
     count_query.push_bind(project.id.clone());
     push_task_filters(&mut count_query, &query);
@@ -449,30 +450,48 @@ async fn create_task(
     // ── Insert ────────────────────────────────────────────────────────────────
     let new_id = Uuid::new_v4().to_string();
 
-    sqlx::query(
-        "INSERT INTO tasks
-             (id, workspace_id, project_id, group_id, parent_task_id,
-              rank_key, title, description_md, status, priority,
-              assignee_type, assignee_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'todo', $9, $10, $11)",
-    )
+    let insert_task_sql = match state.db_backend {
+        DatabaseBackend::Postgres => {
+            "INSERT INTO tasks
+                 (id, workspace_id, project_id, group_id, parent_task_id,
+                  rank_key, title, description_md, status, priority,
+                  assignee_type, assignee_id)
+             VALUES (
+                 CAST($1 AS UUID),
+                 CAST($2 AS UUID),
+                 CAST($3 AS UUID),
+                 CAST($4 AS UUID),
+                 CAST($5 AS UUID),
+                 $6, $7, $8, 'todo', $9, $10, CAST($11 AS UUID)
+             )"
+        }
+        DatabaseBackend::Sqlite => {
+            "INSERT INTO tasks
+                 (id, workspace_id, project_id, group_id, parent_task_id,
+                  rank_key, title, description_md, status, priority,
+                  assignee_type, assignee_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'todo', $9, $10, $11)"
+        }
+    };
+
+    sqlx::query(insert_task_sql)
         .bind(new_id.clone())
         .bind(project.workspace_id)
-    .bind(project.id.clone())
-    .bind(body.group_id)
-    .bind(body.parent_task_id)
-    .bind(&body.rank_key)
-    .bind(body.title.trim())
-    .bind(&body.description_md)
-    .bind(&body.priority)
-    .bind(&body.assignee_type)
-    .bind(body.assignee_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!(error = %e, project_id = %project.id, "db error inserting task");
-        ApiError::internal(&request_id, "database error")
-    })?;
+        .bind(project.id.clone())
+        .bind(body.group_id)
+        .bind(body.parent_task_id)
+        .bind(&body.rank_key)
+        .bind(body.title.trim())
+        .bind(&body.description_md)
+        .bind(&body.priority)
+        .bind(&body.assignee_type)
+        .bind(body.assignee_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, project_id = %project.id, "db error inserting task");
+            ApiError::internal(&request_id, "database error")
+        })?;
 
     // ── Fetch created task ────────────────────────────────────────────────────
     let task = fetch_task_detail(&state.pool, &project.id, &new_id)
@@ -542,7 +561,7 @@ async fn update_task_status(
     let affected = sqlx::query(
         "UPDATE tasks
             SET status = $1, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $2 AND project_id = $3",
+            WHERE CAST(id AS TEXT) = $2 AND CAST(project_id AS TEXT) = $3",
     )
     .bind(&body.status)
     .bind(task_id.clone())

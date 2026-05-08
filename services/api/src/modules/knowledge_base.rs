@@ -16,6 +16,7 @@ use crate::http::{
     request_id::RequestId,
     response::{ApiResponse, Created, ListData, ResponseMeta},
 };
+use crate::db::DatabaseBackend;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -173,7 +174,8 @@ async fn list_notes(
     )
     .await?;
 
-    let (total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM notes WHERE project_id = $1")
+    let (total,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM notes WHERE CAST(project_id AS TEXT) = $1")
         .bind(&project_id)
         .fetch_one(&state.pool)
         .await
@@ -188,7 +190,7 @@ async fn list_notes(
             kind, author_type, CAST(author_id AS TEXT) AS author_id, title, body_md, \
             CAST(created_at AS TEXT) AS created_at, CAST(updated_at AS TEXT) AS updated_at \
          FROM notes \
-         WHERE project_id = $1 \
+         WHERE CAST(project_id AS TEXT) = $1 \
          ORDER BY created_at DESC \
          LIMIT $2 OFFSET $3",
     )
@@ -257,11 +259,30 @@ async fn create_note(
         _ => AuthorType::WorkspaceMember,
     };
 
-    sqlx::query(
-        "INSERT INTO notes \
-         (id, workspace_id, project_id, agent_session_id, kind, author_type, author_id, title, body_md) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-    )
+    let insert_note_sql = match state.db_backend {
+        DatabaseBackend::Postgres => {
+            "INSERT INTO notes \
+             (id, workspace_id, project_id, agent_session_id, kind, author_type, author_id, title, body_md) \
+             VALUES (
+                CAST($1 AS UUID),
+                CAST($2 AS UUID),
+                CAST($3 AS UUID),
+                CAST($4 AS UUID),
+                $5,
+                $6,
+                CAST($7 AS UUID),
+                $8,
+                $9
+             )"
+        }
+        DatabaseBackend::Sqlite => {
+            "INSERT INTO notes \
+             (id, workspace_id, project_id, agent_session_id, kind, author_type, author_id, title, body_md) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+        }
+    };
+
+    sqlx::query(insert_note_sql)
     .bind(&note_id)
     .bind(&workspace_id)
     .bind(&project_id)
@@ -280,7 +301,7 @@ async fn create_note(
             CAST(agent_session_id AS TEXT) AS agent_session_id, \
             kind, author_type, CAST(author_id AS TEXT) AS author_id, title, body_md, \
             CAST(created_at AS TEXT) AS created_at, CAST(updated_at AS TEXT) AS updated_at \
-         FROM notes WHERE id = $1",
+         FROM notes WHERE CAST(id AS TEXT) = $1",
     )
     .bind(&note_id)
     .fetch_one(&state.pool)
@@ -336,7 +357,7 @@ async fn get_note(
             kind, author_type, CAST(author_id AS TEXT) AS author_id, title, body_md, \
             CAST(created_at AS TEXT) AS created_at, CAST(updated_at AS TEXT) AS updated_at \
          FROM notes \
-         WHERE id = $1 AND project_id = $2",
+         WHERE CAST(id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2",
     )
     .bind(&note_id)
     .bind(&project_id)

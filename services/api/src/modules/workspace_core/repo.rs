@@ -67,7 +67,7 @@ pub async fn list_projects(
                 CAST(created_at AS TEXT) AS created_at, \
                 CAST(updated_at AS TEXT) AS updated_at \
          FROM projects \
-         WHERE workspace_id = $1 \
+         WHERE CAST(workspace_id AS TEXT) = $1 \
          ORDER BY created_at DESC",
     )
     .bind(workspace_id)
@@ -86,7 +86,7 @@ pub async fn get_project_by_slug(
                 CAST(created_at AS TEXT) AS created_at, \
                 CAST(updated_at AS TEXT) AS updated_at \
          FROM projects \
-         WHERE workspace_id = $1 AND slug = $2",
+         WHERE CAST(workspace_id AS TEXT) = $1 AND slug = $2",
     )
     .bind(workspace_id)
     .bind(project_slug)
