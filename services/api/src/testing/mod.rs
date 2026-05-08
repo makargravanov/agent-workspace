@@ -394,6 +394,20 @@ mod postgres_smoke {
         let task_body = body_json(create_task.into_body()).await;
         let task_id = task_body["data"]["id"].as_str().expect("task id").to_string();
 
+        let list_tasks = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/workspaces/pg-child/projects/pg-proj/tasks")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(list_tasks.status(), StatusCode::OK);
+
         let update_task = app
             .clone()
             .oneshot(

@@ -16,7 +16,6 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::QueryBuilder;
 use uuid::Uuid;
 
 use crate::{
@@ -154,23 +153,6 @@ fn default_limit() -> i64 {
     50
 }
 
-fn push_task_filters(builder: &mut QueryBuilder<'_, sqlx::Any>, query: &ListTasksQuery) {
-    if let Some(status) = query.status.clone() {
-        builder.push(" AND t.status = ");
-        builder.push_bind(status);
-    }
-
-    if let Some(group_id) = query.group_id.clone() {
-        builder.push(" AND CAST(t.group_id AS TEXT) = ");
-        builder.push_bind(group_id);
-    }
-
-    if let Some(assignee_id) = query.assignee_id.clone() {
-        builder.push(" AND CAST(t.assignee_id AS TEXT) = ");
-        builder.push_bind(assignee_id);
-    }
-}
-
 // ── Route registration ────────────────────────────────────────────────────────
 
 pub fn routes() -> Router<AppState> {
@@ -287,7 +269,7 @@ async fn list_tasks(
 
     let limit = query.limit.clamp(1, 200);
 
-    let mut select_query = QueryBuilder::<sqlx::Any>::new(
+    let rows: Vec<TaskRow> = sqlx::query_as(
         "SELECT
              CAST(t.id AS TEXT) AS id,
              CAST(t.project_id AS TEXT) AS project_id,
@@ -309,15 +291,18 @@ async fn list_tasks(
                    AND blocker.status NOT IN ('done', 'cancelled')
              ) THEN 1 ELSE 0 END AS blocked
          FROM tasks t
-         WHERE CAST(t.project_id AS TEXT) = ",
-    );
-    select_query.push_bind(project.id.clone());
-    push_task_filters(&mut select_query, &query);
-    select_query.push(" ORDER BY t.rank_key LIMIT ");
-    select_query.push_bind(limit);
-
-    let rows: Vec<TaskRow> = select_query
-        .build_query_as()
+         WHERE CAST(t.project_id AS TEXT) = $1
+           AND ($2 IS NULL OR t.status = $2)
+           AND ($3 IS NULL OR CAST(t.group_id AS TEXT) = $3)
+           AND ($4 IS NULL OR CAST(t.assignee_id AS TEXT) = $4)
+         ORDER BY t.rank_key
+         LIMIT $5",
+    )
+        .bind(project.id.clone())
+        .bind(query.status.clone())
+        .bind(query.group_id.clone())
+        .bind(query.assignee_id.clone())
+        .bind(limit)
         .fetch_all(&state.pool)
         .await
         .map_err(|e| {
@@ -325,16 +310,18 @@ async fn list_tasks(
             ApiError::internal(&request_id, "database error")
         })?;
 
-    let mut count_query = QueryBuilder::<sqlx::Any>::new(
+    let (total,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*)
          FROM tasks t
-         WHERE CAST(t.project_id AS TEXT) = ",
-    );
-    count_query.push_bind(project.id.clone());
-    push_task_filters(&mut count_query, &query);
-
-    let (total,): (i64,) = count_query
-        .build_query_as()
+         WHERE CAST(t.project_id AS TEXT) = $1
+           AND ($2 IS NULL OR t.status = $2)
+           AND ($3 IS NULL OR CAST(t.group_id AS TEXT) = $3)
+           AND ($4 IS NULL OR CAST(t.assignee_id AS TEXT) = $4)",
+    )
+        .bind(project.id.clone())
+        .bind(query.status.clone())
+        .bind(query.group_id.clone())
+        .bind(query.assignee_id.clone())
         .fetch_one(&state.pool)
         .await
         .map_err(|e| {
