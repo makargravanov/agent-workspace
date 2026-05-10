@@ -47,9 +47,7 @@ async fn resolve_workspace(
     pool: &sqlx::AnyPool,
     workspace_slug: &str,
 ) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_as::<_, (String,)>(
-        "SELECT CAST(id AS TEXT) FROM workspaces WHERE slug = $1 AND status != 'archived'",
-    )
+    sqlx::query_as::<_, (String,)>("SELECT CAST(id AS TEXT) FROM workspaces WHERE slug = $1")
     .bind(workspace_slug)
     .fetch_optional(pool)
     .await
