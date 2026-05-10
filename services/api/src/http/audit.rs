@@ -27,6 +27,94 @@ pub fn emit_audit(event: AuditEvent) {
     );
 }
 
+async fn resolve_resource_scope(
+    pool: &sqlx::AnyPool,
+    event: &AuditEvent,
+) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
+    if event.resource_kind == "workspace" {
+        return Ok(Some((event.resource_id.clone(), None)));
+    }
+
+    let sql = match event.resource_kind.as_str() {
+        "workspace_member" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(NULL AS TEXT)
+             FROM workspace_members
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "project" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(id AS TEXT)
+             FROM projects
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "task_group" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(project_id AS TEXT)
+             FROM task_groups
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "task" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(project_id AS TEXT)
+             FROM tasks
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "task_dependency" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(project_id AS TEXT)
+             FROM task_dependencies
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "document" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(project_id AS TEXT)
+             FROM documents
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "asset" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(project_id AS TEXT)
+             FROM assets
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "agent" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(NULL AS TEXT)
+             FROM agents
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "agent_credential" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(project_id AS TEXT)
+             FROM agent_credentials
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "agent_session" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(project_id AS TEXT)
+             FROM agent_sessions
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "agent_session_task" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(project_id AS TEXT)
+             FROM agent_session_tasks
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "note" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(project_id AS TEXT)
+             FROM notes
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "link" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(project_id AS TEXT)
+             FROM links
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        "integration_connection" => {
+            "SELECT CAST(workspace_id AS TEXT), CAST(project_id AS TEXT)
+             FROM integration_connections
+             WHERE CAST(id AS TEXT) = $1"
+        }
+        _ => return Ok(None),
+    };
+
+    sqlx::query_as::<_, (String, Option<String>)>(sql)
+        .bind(&event.resource_id)
+        .fetch_optional(pool)
+        .await
+}
+
 pub async fn record_audit(
     pool: &sqlx::AnyPool,
     db_backend: DatabaseBackend,
@@ -34,11 +122,16 @@ pub async fn record_audit(
 ) -> Result<(), sqlx::Error> {
     emit_audit(event.clone());
 
-    let Some(workspace_id) = event.actor.workspace_id.as_deref() else {
-        return Ok(());
+    let (workspace_id, project_id) = match event.actor.workspace_id.clone() {
+        Some(workspace_id) => (workspace_id, event.actor.project_id.clone()),
+        None => {
+            let Some((workspace_id, project_id)) = resolve_resource_scope(pool, &event).await? else {
+                return Ok(());
+            };
+            (workspace_id, project_id)
+        }
     };
 
-    let project_id = event.actor.project_id.clone();
     let actor_id = if event.actor.actor_id == "anonymous" {
         None
     } else {
@@ -75,7 +168,7 @@ pub async fn record_audit(
     };
 
     sqlx::query(sql)
-        .bind(workspace_id)
+        .bind(&workspace_id)
         .bind(project_id.as_deref())
         .bind(match event.actor.actor_kind {
             super::actor::ActorKind::Human => "workspace_member",
