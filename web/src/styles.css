@@ -1,21 +1,32 @@
 :root {
   color-scheme: light;
   font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
+    "IBM Plex Sans",
     "Segoe UI",
     sans-serif;
   line-height: 1.45;
   font-weight: 400;
-  background: #f4f5f7;
-  color: #172b4d;
+  background:
+    radial-gradient(circle at top left, rgba(164, 98, 63, 0.1), transparent 28%),
+    linear-gradient(180deg, #f4efe6 0%, #efe8de 100%);
+  color: #1f2430;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  --bg-canvas: #efe8de;
+  --bg-elevated: #faf7f2;
+  --bg-panel: #fffdfa;
+  --bg-sidebar: #232a33;
+  --bg-sidebar-2: #1c222b;
+  --text-main: #1f2430;
+  --text-muted: #676052;
+  --border-soft: #d8d0c2;
+  --border-strong: #bfb3a1;
+  --accent: #b5532f;
+  --accent-hover: #964321;
+  --accent-soft: #f4dfd4;
+  --shadow-soft: 0 10px 28px rgba(49, 36, 24, 0.08);
 }
 
 * {
@@ -31,6 +42,9 @@ body,
 
 body {
   min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(164, 98, 63, 0.1), transparent 28%),
+    linear-gradient(180deg, #f4efe6 0%, #efe8de 100%);
 }
 
 button,
@@ -76,11 +90,15 @@ p {
 h1 {
   font-size: 1.35rem;
   line-height: 1.2;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-weight: 700;
 }
 
 h2 {
   font-size: 1rem;
   line-height: 1.2;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-weight: 700;
 }
 
 h3 {
@@ -93,17 +111,19 @@ h3 {
   min-height: 100vh;
   place-items: center;
   padding: 24px;
-  background: #f4f5f7;
+  background:
+    radial-gradient(circle at top left, rgba(164, 98, 63, 0.08), transparent 28%),
+    linear-gradient(180deg, #f4efe6 0%, #efe8de 100%);
 }
 
 .authCard,
 .messageCard {
   width: min(440px, 100%);
   padding: 24px;
-  border: 1px solid #dfe1e6;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 18px 44px rgba(9, 30, 66, 0.12);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-soft);
 }
 
 .authButtons {
@@ -116,7 +136,7 @@ h3 {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
   min-height: 100vh;
-  background: #f4f5f7;
+  background: var(--bg-canvas);
 }
 
 .appSidebar {
@@ -124,8 +144,9 @@ h3 {
   top: 0;
   height: 100vh;
   overflow: auto;
-  border-right: 1px solid #dfe1e6;
-  background: #ffffff;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, var(--bg-sidebar) 0%, var(--bg-sidebar-2) 100%);
   padding: 14px 12px;
 }
 
@@ -135,9 +156,10 @@ h3 {
   gap: 10px;
   min-height: 40px;
   padding: 4px 8px 14px;
-  color: #172b4d;
+  color: #f8f1e8;
   font-weight: 800;
   text-decoration: none;
+  letter-spacing: 0.01em;
 }
 
 .brandIcon {
@@ -145,10 +167,11 @@ h3 {
   width: 28px;
   height: 28px;
   place-items: center;
-  border-radius: 6px;
-  background: #0c66e4;
-  color: #ffffff;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #c46038 0%, #964321 100%);
+  color: #fff7f2;
   font-size: 0.72rem;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
 }
 
 .sidebarSection {
@@ -159,7 +182,7 @@ h3 {
 
 .sidebarLabel {
   padding: 10px 8px 5px;
-  color: #626f86;
+  color: #aea493;
   font-size: 0.72rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -171,8 +194,8 @@ h3 {
   gap: 9px;
   min-height: 34px;
   padding: 0 8px;
-  border-radius: 6px;
-  color: #44546f;
+  border-radius: 5px;
+  color: #d7d0c5;
   font-size: 0.9rem;
   text-decoration: none;
 }
@@ -186,13 +209,13 @@ h3 {
 
 .sidebarLink:hover,
 .sidebarLink.isActive {
-  background: #e9f2ff;
-  color: #0c66e4;
+  background: rgba(255, 249, 240, 0.08);
+  color: #fff5ea;
 }
 
 .sidebarEmpty {
   padding: 8px;
-  color: #626f86;
+  color: #aea493;
   font-size: 0.88rem;
 }
 
@@ -212,8 +235,8 @@ h3 {
   gap: 18px;
   min-height: 72px;
   padding: 10px 20px;
-  border-bottom: 1px solid #dfe1e6;
-  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--border-soft);
+  background: rgba(255, 253, 250, 0.94);
   backdrop-filter: blur(10px);
 }
 
@@ -228,17 +251,17 @@ h3 {
   min-width: 0;
   align-items: center;
   gap: 6px;
-  color: #626f86;
+  color: var(--text-muted);
   font-size: 0.82rem;
 }
 
 .breadcrumbs a {
-  color: #44546f;
+  color: #4b4033;
   text-decoration: none;
 }
 
 .breadcrumbs a:hover {
-  color: #0c66e4;
+  color: var(--accent);
 }
 
 .topTabs {
@@ -247,7 +270,7 @@ h3 {
   gap: 4px;
   padding: 3px;
   border-radius: 8px;
-  background: #f1f2f4;
+  background: #e7dfd4;
 }
 
 .topTab {
@@ -257,16 +280,16 @@ h3 {
   min-height: 34px;
   padding: 0 10px;
   border-radius: 6px;
-  color: #44546f;
+  color: #584d41;
   font-size: 0.9rem;
   text-decoration: none;
 }
 
 .topTab:hover,
 .topTab.isActive {
-  background: #ffffff;
-  color: #0c66e4;
-  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.12);
+  background: #fffdfa;
+  color: var(--accent);
+  box-shadow: 0 1px 2px rgba(49, 36, 24, 0.08);
 }
 
 .topBarActions {
@@ -278,17 +301,19 @@ h3 {
 .actorMeta {
   display: grid;
   justify-items: end;
-  color: #626f86;
+  color: var(--text-muted);
   font-size: 0.76rem;
 }
 
 .actorMeta strong {
-  color: #172b4d;
+  color: var(--text-main);
 }
 
 .appContent {
   min-width: 0;
   padding: 18px 20px 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 250, 0.55) 0%, rgba(255, 252, 248, 0.18) 100%);
 }
 
 .primaryButton,
@@ -308,25 +333,25 @@ h3 {
 }
 
 .primaryButton {
-  background: #0c66e4;
-  color: #ffffff;
+  background: var(--accent);
+  color: #fffaf6;
 }
 
 .primaryButton:hover:not(:disabled) {
-  background: #0055cc;
+  background: var(--accent-hover);
 }
 
 .secondaryButton,
 .iconButton {
-  background: #ffffff;
-  border-color: #dfe1e6;
-  color: #172b4d;
+  background: var(--bg-panel);
+  border-color: var(--border-soft);
+  color: var(--text-main);
 }
 
 .secondaryButton:hover:not(:disabled),
 .iconButton:hover:not(:disabled) {
-  background: #f7f8f9;
-  border-color: #b3b9c4;
+  background: #f6f0e8;
+  border-color: var(--border-strong);
 }
 
 .compactButton {
@@ -338,10 +363,10 @@ input,
 select,
 textarea {
   width: 100%;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #172b4d;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: #fffdfa;
+  color: var(--text-main);
 }
 
 input,
@@ -358,8 +383,8 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  outline: 2px solid rgba(12, 102, 228, 0.18);
-  border-color: #0c66e4;
+  outline: 2px solid rgba(181, 83, 47, 0.14);
+  border-color: var(--accent);
 }
 
 .field {
@@ -369,7 +394,7 @@ textarea:focus {
 
 .field span,
 .inlineField span {
-  color: #44546f;
+  color: #5b5146;
   font-size: 0.8rem;
   font-weight: 650;
 }
@@ -422,10 +447,10 @@ textarea:focus {
   min-width: min(360px, 100%);
   height: 36px;
   padding: 0 10px;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #626f86;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
 }
 
 .searchField input {
@@ -440,9 +465,9 @@ textarea:focus {
 .workPanel,
 .tablePanel,
 .statCard {
-  border: 1px solid #dfe1e6;
-  border-radius: 8px;
-  background: #ffffff;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-panel);
 }
 
 .directoryPanel,
@@ -465,15 +490,15 @@ textarea:focus {
   gap: 12px;
   min-height: 52px;
   padding: 9px 12px;
-  border: 1px solid #dfe1e6;
-  border-radius: 6px;
-  color: #172b4d;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  color: var(--text-main);
   text-decoration: none;
 }
 
 .directoryRow:hover {
-  border-color: #85b8ff;
-  background: #f7fbff;
+  border-color: #d6b39f;
+  background: #fbf5ee;
 }
 
 .directoryRow div,
@@ -487,7 +512,7 @@ textarea:focus {
 .compactRow span {
   min-width: 0;
   overflow: hidden;
-  color: #626f86;
+  color: var(--text-muted);
   font-size: 0.86rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -514,14 +539,14 @@ textarea:focus {
 }
 
 .statValue {
-  color: #172b4d;
+  color: #2a2118;
   font-size: 1.7rem;
   font-weight: 800;
   line-height: 1;
 }
 
 .statLabel {
-  color: #626f86;
+  color: var(--text-muted);
   font-size: 0.84rem;
 }
 
@@ -541,7 +566,7 @@ textarea:focus {
   gap: 3px;
   padding: 3px;
   border-radius: 7px;
-  background: #dfe1e6;
+  background: #e2d8cb;
 }
 
 .viewSwitch button {
@@ -553,14 +578,14 @@ textarea:focus {
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: #44546f;
+  color: #5a5044;
   cursor: pointer;
 }
 
 .viewSwitch button.isActive {
-  background: #ffffff;
-  color: #0c66e4;
-  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.14);
+  background: var(--bg-panel);
+  color: var(--accent);
+  box-shadow: 0 1px 2px rgba(49, 36, 24, 0.1);
 }
 
 .kanbanBoard {
@@ -575,14 +600,14 @@ textarea:focus {
   min-width: 250px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  border: 1px solid #dfe1e6;
-  border-radius: 8px;
-  background: #f1f2f4;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: #e6dfd6;
 }
 
 .kanbanColumn.isOver {
-  border-color: #0c66e4;
-  box-shadow: inset 0 0 0 1px #0c66e4;
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .kanbanColumnHeader {
@@ -591,8 +616,8 @@ textarea:focus {
   justify-content: space-between;
   min-height: 42px;
   padding: 0 12px;
-  border-bottom: 1px solid #dfe1e6;
-  color: #44546f;
+  border-bottom: 1px solid #d3c9bc;
+  color: #55493e;
   font-size: 0.78rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -604,8 +629,8 @@ textarea:focus {
   height: 24px;
   place-items: center;
   border-radius: 999px;
-  background: #dfe1e6;
-  color: #172b4d;
+  background: #d7cabc;
+  color: #3b3127;
 }
 
 .kanbanColumnBody {
@@ -618,10 +643,10 @@ textarea:focus {
 
 .quickTaskForm,
 .taskCard {
-  border: 1px solid #dfe1e6;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.12);
+  border: 1px solid #d5cabd;
+  border-radius: 6px;
+  background: #fffdfa;
+  box-shadow: 0 1px 2px rgba(49, 36, 24, 0.08);
 }
 
 .quickTaskForm {
@@ -664,7 +689,7 @@ textarea:focus {
 }
 
 .taskCard p {
-  color: #44546f;
+  color: #5f564b;
   font-size: 0.86rem;
 }
 
@@ -673,7 +698,7 @@ textarea:focus {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  color: #626f86;
+  color: var(--text-muted);
   font-size: 0.76rem;
 }
 
@@ -721,39 +746,39 @@ textarea:focus {
 }
 
 .statusPill {
-  background: #dfe1e6;
-  color: #44546f;
+  background: #e3dbcf;
+  color: #4e4438;
 }
 
 .status-todo {
-  background: #dfe1e6;
-  color: #44546f;
+  background: #ded5c8;
+  color: #4e4438;
 }
 
 .status-in_progress,
 .status-active {
-  background: #e9f2ff;
-  color: #0c66e4;
+  background: #dbe9e5;
+  color: #24564b;
 }
 
 .status-archived {
-  background: #f1f2f4;
-  color: #626f86;
+  background: #e6e0d7;
+  color: #746b60;
 }
 
 .status-done {
-  background: #dcfff1;
-  color: #216e4e;
+  background: #dfede1;
+  color: #2f5d37;
 }
 
 .status-cancelled {
-  background: #ffedeb;
-  color: #ae2e24;
+  background: #f6dfd9;
+  color: #8e3e2c;
 }
 
 .blockedPill {
-  background: #fff7d6;
-  color: #7f5f01;
+  background: #f1e3ba;
+  color: #73520b;
 }
 
 .tablePanel {
@@ -769,13 +794,13 @@ textarea:focus {
 .taskTable th,
 .taskTable td {
   padding: 9px 12px;
-  border-bottom: 1px solid #dfe1e6;
+  border-bottom: 1px solid var(--border-soft);
   text-align: left;
   vertical-align: middle;
 }
 
 .taskTable th {
-  color: #626f86;
+  color: var(--text-muted);
   font-size: 0.76rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -789,7 +814,7 @@ textarea:focus {
 .taskTable td:first-child span {
   max-width: 520px;
   overflow: hidden;
-  color: #626f86;
+  color: var(--text-muted);
   font-size: 0.82rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -799,9 +824,9 @@ textarea:focus {
   display: grid;
   gap: 8px;
   padding: 12px;
-  border: 1px solid #dfe1e6;
-  border-radius: 8px;
-  background: #ffffff;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: #fffdfa;
 }
 
 .noteRowHeader,
@@ -813,19 +838,19 @@ textarea:focus {
 }
 
 .noteRow p {
-  color: #44546f;
+  color: #5f564b;
 }
 
 .mutedText {
-  color: #626f86;
+  color: var(--text-muted);
 }
 
 .emptyPanel,
 .emptyLane {
-  border: 1px dashed #b3b9c4;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #626f86;
+  border: 1px dashed #bfae98;
+  border-radius: 6px;
+  background: rgba(255, 253, 250, 0.75);
+  color: var(--text-muted);
   padding: 14px;
 }
 
@@ -838,7 +863,7 @@ textarea:focus {
 
 .warningText,
 .errorText {
-  color: #ae2e24;
+  color: #9a4129;
   font-size: 0.86rem;
 }
 
