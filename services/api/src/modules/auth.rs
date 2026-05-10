@@ -120,7 +120,12 @@ async fn github_start(request_id: RequestId) -> Result<(HeaderMap, Redirect), Ap
             ("scope", "read:user"),
         ],
     )
-    .map_err(|e| ApiError::internal(&request_id.0, format!("failed to build GitHub OAuth URL: {e}")))?;
+    .map_err(|e| {
+        ApiError::internal(
+            &request_id.0,
+            format!("failed to build GitHub OAuth URL: {e}"),
+        )
+    })?;
 
     let mut response_headers = HeaderMap::new();
     response_headers.append(
@@ -138,12 +143,12 @@ async fn github_callback(
     headers: HeaderMap,
     Query(query): Query<GithubCallbackQuery>,
 ) -> Result<(HeaderMap, Redirect), ApiError> {
-    let code = query.code.ok_or_else(|| {
-        ApiError::validation_error(&request_id.0, "missing GitHub OAuth code")
-    })?;
-    let returned_state = query.state.ok_or_else(|| {
-        ApiError::validation_error(&request_id.0, "missing GitHub OAuth state")
-    })?;
+    let code = query
+        .code
+        .ok_or_else(|| ApiError::validation_error(&request_id.0, "missing GitHub OAuth code"))?;
+    let returned_state = query
+        .state
+        .ok_or_else(|| ApiError::validation_error(&request_id.0, "missing GitHub OAuth state"))?;
     let expected_state = oauth_state_cookie_from_headers(&headers).ok_or_else(|| {
         ApiError::unauthorised(&request_id.0, "missing GitHub OAuth state cookie")
     })?;
@@ -157,13 +162,9 @@ async fn github_callback(
 
     let cfg = GithubOAuthConfig::from_env(&request_id.0)?;
     let profile = exchange_github_code(&cfg, &code, &request_id.0).await?;
-    let member_id = resolve_or_create_github_member(
-        &state.pool,
-        state.db_backend,
-        &profile,
-        &request_id,
-    )
-    .await?;
+    let member_id =
+        resolve_or_create_github_member(&state.pool, state.db_backend, &profile, &request_id)
+            .await?;
     let session_cookie_value = create_human_session(
         &state.pool,
         state.db_backend,
@@ -350,7 +351,9 @@ async fn exchange_github_code(
     let client = reqwest::Client::builder()
         .user_agent("agent-workspace-api")
         .build()
-        .map_err(|e| ApiError::internal(request_id, format!("failed to build GitHub client: {e}")))?;
+        .map_err(|e| {
+            ApiError::internal(request_id, format!("failed to build GitHub client: {e}"))
+        })?;
 
     let token_response = client
         .post(&cfg.token_url)
@@ -363,7 +366,9 @@ async fn exchange_github_code(
         ])
         .send()
         .await
-        .map_err(|e| ApiError::internal(request_id, format!("GitHub token exchange failed: {e}")))?;
+        .map_err(|e| {
+            ApiError::internal(request_id, format!("GitHub token exchange failed: {e}"))
+        })?;
 
     if !token_response.status().is_success() {
         return Err(ApiError::internal(
@@ -375,7 +380,12 @@ async fn exchange_github_code(
     let token_body = token_response
         .json::<GithubTokenResponse>()
         .await
-        .map_err(|e| ApiError::internal(request_id, format!("failed to parse GitHub token response: {e}")))?;
+        .map_err(|e| {
+            ApiError::internal(
+                request_id,
+                format!("failed to parse GitHub token response: {e}"),
+            )
+        })?;
 
     let user_response = client
         .get(&cfg.user_url)
@@ -395,7 +405,12 @@ async fn exchange_github_code(
     let user = user_response
         .json::<GithubUserResponse>()
         .await
-        .map_err(|e| ApiError::internal(request_id, format!("failed to parse GitHub user response: {e}")))?;
+        .map_err(|e| {
+            ApiError::internal(
+                request_id,
+                format!("failed to parse GitHub user response: {e}"),
+            )
+        })?;
 
     Ok(GithubProfile {
         provider_subject: format!("github:user:{}", user.id),
@@ -419,8 +434,14 @@ async fn resolve_or_create_github_member(
     )
     .await?
     {
-        sync_member_display_name(pool, db_backend, &member_id, &profile.display_name, request_id)
-            .await?;
+        sync_member_display_name(
+            pool,
+            db_backend,
+            &member_id,
+            &profile.display_name,
+            request_id,
+        )
+        .await?;
         ensure_identity(
             pool,
             db_backend,
@@ -434,16 +455,18 @@ async fn resolve_or_create_github_member(
         return Ok(member_id);
     }
 
-    if let Some(member_id) = resolve_member_by_external_subject(
-        pool,
-        db_backend,
-        &profile.provider_subject,
-        request_id,
-    )
-    .await?
+    if let Some(member_id) =
+        resolve_member_by_external_subject(pool, db_backend, &profile.provider_subject, request_id)
+            .await?
     {
-        sync_member_display_name(pool, db_backend, &member_id, &profile.display_name, request_id)
-            .await?;
+        sync_member_display_name(
+            pool,
+            db_backend,
+            &member_id,
+            &profile.display_name,
+            request_id,
+        )
+        .await?;
         ensure_identity(
             pool,
             db_backend,
@@ -459,8 +482,14 @@ async fn resolve_or_create_github_member(
 
     let workspace_slug = github_workspace_slug(&profile.login, &profile.provider_subject);
     let workspace_name = format!("{} Workspace", profile.display_name);
-    let workspace_id =
-        ensure_workspace(pool, db_backend, &workspace_slug, &workspace_name, request_id).await?;
+    let workspace_id = ensure_workspace(
+        pool,
+        db_backend,
+        &workspace_slug,
+        &workspace_name,
+        request_id,
+    )
+    .await?;
     let member_id = ensure_member(
         pool,
         db_backend,
@@ -927,8 +956,7 @@ fn state_cookie(state: &str) -> String {
     let secure_attr = secure_cookie_attr();
     format!(
         "{GITHUB_OAUTH_STATE_COOKIE_NAME}={state}; Path=/; Max-Age={}; HttpOnly; SameSite=Lax{}",
-        GITHUB_OAUTH_STATE_TTL_SECONDS,
-        secure_attr
+        GITHUB_OAUTH_STATE_TTL_SECONDS, secure_attr
     )
 }
 
@@ -1002,7 +1030,10 @@ mod tests {
     }
 
     async fn any_test_state() -> AppState {
-        AppState::new(crate::testing::any_test_pool().await, crate::db::DatabaseBackend::Sqlite)
+        AppState::new(
+            crate::testing::any_test_pool().await,
+            crate::db::DatabaseBackend::Sqlite,
+        )
     }
 
     fn build_test_app(state: AppState) -> axum::Router {
@@ -1234,7 +1265,10 @@ mod tests {
         let (base_url, handle) = spawn_mock_github().await;
         std::env::set_var("GITHUB_CLIENT_ID", "test-client");
         std::env::set_var("GITHUB_CLIENT_SECRET", "test-secret");
-        std::env::set_var("GITHUB_OAUTH_REDIRECT_URI", "http://localhost/oauth/callback");
+        std::env::set_var(
+            "GITHUB_OAUTH_REDIRECT_URI",
+            "http://localhost/oauth/callback",
+        );
         std::env::set_var("GITHUB_OAUTH_SUCCESS_REDIRECT_PATH", "/app");
         std::env::set_var(
             "GITHUB_OAUTH_AUTHORIZE_URL",

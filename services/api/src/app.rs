@@ -22,6 +22,7 @@ fn api_v1_router() -> Router<AppState> {
         .merge(modules::workspace_admin::routes())
         .merge(modules::task_management::routes())
         .merge(modules::task_structure::routes())
+        .merge(modules::documents::routes())
         .merge(modules::knowledge_base::routes())
         .merge(modules::search_indexing::routes())
         .merge(modules::agent_access::routes())
@@ -41,7 +42,10 @@ mod tests {
     use tower::ServiceExt;
 
     async fn test_app() -> axum::Router {
-        build_router(AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite))
+        build_router(AppState::new(
+            any_test_pool().await,
+            crate::db::DatabaseBackend::Sqlite,
+        ))
     }
 
     #[tokio::test]

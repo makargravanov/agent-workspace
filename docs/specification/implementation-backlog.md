@@ -98,8 +98,8 @@ Scope документа:
 
 | ID | Задача | Основные endpoints | Зависимости | Можно вести параллельно с |
 | --- | --- | --- | --- | --- |
-| `BL-20` | Tasks foundation | `/tasks` list/create/detail, `/tasks/{taskId}/status` | `BL-11`, `BL-01`, `BL-02`, `BL-03` | `BL-30`, `BL-31`, `BL-40`, `BL-50` |
-| `BL-21` | Task groups | `/task-groups` list/create/detail/patch | `BL-11`, `BL-01`, `BL-02`, `BL-03` | `BL-20`, `BL-30`, `BL-40` |
+| `BL-20` | Tasks foundation | `/tasks` list/create/detail/patch, `/tasks/{taskId}/status` | `BL-11`, `BL-01`, `BL-02`, `BL-03` | `BL-30`, `BL-31`, `BL-40`, `BL-50` |
+| `BL-21` | Task groups | `/task-groups` list/create/detail/patch/delete | `BL-11`, `BL-01`, `BL-02`, `BL-03` | `BL-20`, `BL-30`, `BL-40` |
 | `BL-22` | Task dependencies and blocked view | `/tasks/{taskId}/dependencies` get/post/delete | `BL-20` | `BL-30`, `BL-31`, `BL-40`, `BL-50` |
 
 Комментарий:
@@ -111,8 +111,8 @@ Scope документа:
 
 | ID | Задача | Основные endpoints | Зависимости | Можно вести параллельно с |
 | --- | --- | --- | --- | --- |
-| `BL-30` | Notes foundation | `/notes` list/create/detail | `BL-11`, `BL-01`, `BL-02`, `BL-03` | `BL-20`, `BL-21`, `BL-40` |
-| `BL-31` | Documents CRUD | `/documents` list/create/detail/patch | `BL-11`, `BL-01`, `BL-02`, `BL-03` | `BL-20`, `BL-21`, `BL-40` |
+| `BL-30` | Notes foundation | `/notes` list/create/detail/patch/delete | `BL-11`, `BL-01`, `BL-02`, `BL-03` | `BL-20`, `BL-21`, `BL-40` |
+| `BL-31` | Documents CRUD | `/documents` list/create/detail/patch/delete | `BL-11`, `BL-01`, `BL-02`, `BL-03` | `BL-20`, `BL-21`, `BL-40` |
 | `BL-32` | Asset storage and asset endpoints | `/assets/uploads`, `/assets/{assetId}`, `/assets/{assetId}/download` | `BL-11`, `BL-01`, `BL-02`, `BL-03` | `BL-20`, `BL-21`, `BL-40` |
 
 Комментарий:

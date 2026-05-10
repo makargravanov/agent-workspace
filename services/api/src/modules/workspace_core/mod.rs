@@ -1,9 +1,9 @@
-mod domain;
+pub mod domain;
 mod handlers;
-mod repo;
+pub mod repo;
 
-use axum::Router;
 use crate::state::AppState;
+use axum::Router;
 
 pub fn routes() -> Router<AppState> {
     handlers::routes()

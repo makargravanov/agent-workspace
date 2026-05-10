@@ -21,10 +21,10 @@ use uuid::Uuid;
 // Deterministic fixture IDs
 // Encoded in UUIDv4 format: xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx
 // ---------------------------------------------------------------------------
-const WORKSPACE_ID:   &str = "00000001-0000-4000-8000-000000000001";
-const MEMBER_ID:      &str = "00000001-0000-4000-8000-000000000002";
-const PROJECT_ID:     &str = "00000001-0000-4000-8000-000000000003";
-const TASK_GROUP_ID:  &str = "00000001-0000-4000-8000-000000000004";
+const WORKSPACE_ID: &str = "00000001-0000-4000-8000-000000000001";
+const MEMBER_ID: &str = "00000001-0000-4000-8000-000000000002";
+const PROJECT_ID: &str = "00000001-0000-4000-8000-000000000003";
+const TASK_GROUP_ID: &str = "00000001-0000-4000-8000-000000000004";
 const TASK_IDS: [&str; 3] = [
     "00000001-0000-4000-8000-000000000011",
     "00000001-0000-4000-8000-000000000012",
@@ -36,8 +36,8 @@ const DEP_ID: &str = "00000001-0000-4000-8000-000000000021";
 async fn main() {
     init_tracing();
 
-    let db_cfg = DatabaseConfig::from_env()
-        .expect("DATABASE_URL must be set to run the seed binary");
+    let db_cfg =
+        DatabaseConfig::from_env().expect("DATABASE_URL must be set to run the seed binary");
 
     let pool = build_pool(&db_cfg)
         .await
@@ -51,9 +51,9 @@ async fn main() {
 
     info!("migrations applied; inserting fixture data");
 
-    let workspace_id  = Uuid::parse_str(WORKSPACE_ID).unwrap();
-    let member_id     = Uuid::parse_str(MEMBER_ID).unwrap();
-    let project_id    = Uuid::parse_str(PROJECT_ID).unwrap();
+    let workspace_id = Uuid::parse_str(WORKSPACE_ID).unwrap();
+    let member_id = Uuid::parse_str(MEMBER_ID).unwrap();
+    let project_id = Uuid::parse_str(PROJECT_ID).unwrap();
     let task_group_id = Uuid::parse_str(TASK_GROUP_ID).unwrap();
     let task_uuids: Vec<Uuid> = TASK_IDS
         .iter()
@@ -122,9 +122,27 @@ async fn main() {
 
     // tasks
     let task_fixtures: &[(&Uuid, &str, &str, &str, &str)] = &[
-        (&task_uuids[0], "rank-a", "Set up repository",  "todo",        "high"),
-        (&task_uuids[1], "rank-b", "Write initial tests", "in_progress", "normal"),
-        (&task_uuids[2], "rank-c", "Deploy to staging",  "done",        "normal"),
+        (
+            &task_uuids[0],
+            "rank-a",
+            "Set up repository",
+            "todo",
+            "high",
+        ),
+        (
+            &task_uuids[1],
+            "rank-b",
+            "Write initial tests",
+            "in_progress",
+            "normal",
+        ),
+        (
+            &task_uuids[2],
+            "rank-c",
+            "Deploy to staging",
+            "done",
+            "normal",
+        ),
     ];
 
     for (id, rank_key, title, status, priority) in task_fixtures {

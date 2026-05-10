@@ -26,10 +26,7 @@ struct MembershipRow {
     role: String,
 }
 
-pub fn require_authenticated_human(
-    actor: &ActorContext,
-    request_id: &str,
-) -> Result<(), ApiError> {
+pub fn require_authenticated_human(actor: &ActorContext, request_id: &str) -> Result<(), ApiError> {
     match actor.actor_kind {
         ActorKind::Human => Ok(()),
         ActorKind::System => Err(ApiError::unauthorised(
@@ -73,10 +70,7 @@ pub async fn require_human_workspace_role(
     })?;
 
     let row = row.ok_or_else(|| {
-        ApiError::forbidden(
-            request_id,
-            "actor does not have access to this workspace",
-        )
+        ApiError::forbidden(request_id, "actor does not have access to this workspace")
     })?;
 
     let actual_role = WorkspaceRole::from_db(&row.role).ok_or_else(|| {
@@ -157,10 +151,7 @@ pub async fn require_project_access(
         }
         ActorKind::Agent => {
             let scope = agent_scope.ok_or_else(|| {
-                ApiError::forbidden(
-                    request_id,
-                    "agent credentials cannot access this endpoint",
-                )
+                ApiError::forbidden(request_id, "agent credentials cannot access this endpoint")
             })?;
             require_agent_scope_for_project(actor, workspace_id, project_id, scope, request_id)
         }

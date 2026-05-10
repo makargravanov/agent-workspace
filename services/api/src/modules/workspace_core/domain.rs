@@ -29,9 +29,24 @@ pub struct CreateWorkspaceRequest {
     pub name: String,
 }
 
+/// Body for `PATCH /workspaces/{workspaceSlug}`.
+#[derive(Debug, Deserialize)]
+pub struct UpdateWorkspaceRequest {
+    pub slug: Option<String>,
+    pub name: Option<String>,
+}
+
 /// Body for `POST /workspaces/{workspaceSlug}/projects`.
 #[derive(Debug, Deserialize)]
 pub struct CreateProjectRequest {
     pub slug: String,
     pub name: String,
+}
+
+/// Body for `PATCH /workspaces/{workspaceSlug}/projects/{projectSlug}`.
+#[derive(Debug, Deserialize)]
+pub struct UpdateProjectRequest {
+    pub slug: Option<String>,
+    pub name: Option<String>,
+    pub status: Option<String>,
 }

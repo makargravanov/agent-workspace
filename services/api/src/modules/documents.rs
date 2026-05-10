@@ -18,54 +18,63 @@ use crate::http::{
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct TaskGroupResponse {
+pub struct DocumentResponse {
     pub id: String,
     pub workspace_id: String,
     pub project_id: String,
-    pub kind: String,
+    pub parent_document_id: Option<String>,
+    pub slug: String,
     pub title: String,
-    pub description_md: Option<String>,
+    pub body_format: String,
+    pub body_md: String,
     pub status: String,
-    pub priority: i32,
+    pub version: i32,
     pub created_at: String,
     pub updated_at: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateTaskGroupRequest {
-    pub kind: String,
+pub struct CreateDocumentRequest {
+    pub slug: String,
     pub title: String,
-    pub description_md: Option<String>,
+    pub body_md: String,
+    pub parent_document_id: Option<String>,
+    #[serde(default = "default_body_format")]
+    pub body_format: String,
     #[serde(default = "default_status")]
     pub status: String,
-    #[serde(default)]
-    pub priority: i32,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct UpdateTaskGroupRequest {
-    pub kind: Option<String>,
+pub struct UpdateDocumentRequest {
+    pub version: i32,
+    pub slug: Option<String>,
     pub title: Option<String>,
-    pub description_md: Option<String>,
+    pub body_md: Option<String>,
+    pub parent_document_id: Option<Option<String>>,
+    pub body_format: Option<String>,
     pub status: Option<String>,
-    pub priority: Option<i32>,
+}
+
+fn default_body_format() -> String {
+    "markdown".to_string()
 }
 
 fn default_status() -> String {
-    "active".to_string()
+    "draft".to_string()
 }
 
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route(
-            "/workspaces/{workspace_slug}/projects/{project_slug}/task-groups",
-            get(list_task_groups).post(create_task_group),
+            "/workspaces/{workspace_slug}/projects/{project_slug}/documents",
+            get(list_documents).post(create_document),
         )
         .route(
-            "/workspaces/{workspace_slug}/projects/{project_slug}/task-groups/{group_id}",
-            get(get_task_group)
-                .patch(update_task_group)
-                .delete(delete_task_group),
+            "/workspaces/{workspace_slug}/projects/{project_slug}/documents/{document_id}",
+            get(get_document)
+                .patch(update_document)
+                .delete(delete_document),
         )
 }
 
@@ -86,59 +95,82 @@ async fn resolve_project(
     .await
 }
 
-fn validate_kind(kind: &str, request_id: &str) -> Result<(), ApiError> {
-    if matches!(kind, "initiative" | "epic") {
+fn validate_slug(slug: &str, request_id: &str) -> Result<(), ApiError> {
+    if slug.is_empty() {
+        return Err(ApiError::validation_error(
+            request_id,
+            "slug must not be empty",
+        ));
+    }
+
+    let valid = slug
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if !valid || slug.starts_with('-') || slug.ends_with('-') {
+        return Err(ApiError::validation_error(
+            request_id,
+            "slug must be lowercase kebab-case (a-z, 0-9, hyphens; no leading/trailing hyphen)",
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_body_format(body_format: &str, request_id: &str) -> Result<(), ApiError> {
+    if body_format == "markdown" {
         Ok(())
     } else {
         Err(ApiError::validation_error(
             request_id,
-            "kind must be one of: initiative, epic",
+            "body_format must be markdown",
         ))
     }
 }
 
 fn validate_status(status: &str, request_id: &str) -> Result<(), ApiError> {
-    if matches!(status, "draft" | "active" | "done" | "archived") {
+    if matches!(status, "draft" | "published" | "archived") {
         Ok(())
     } else {
         Err(ApiError::validation_error(
             request_id,
-            "status must be one of: draft, active, done, archived",
+            "status must be one of: draft, published, archived",
         ))
     }
 }
 
-async fn fetch_task_group(
+async fn fetch_document(
     pool: &sqlx::AnyPool,
     project_id: &str,
-    group_id: &str,
-) -> Result<Option<TaskGroupResponse>, sqlx::Error> {
-    sqlx::query_as::<_, TaskGroupResponse>(
+    document_id: &str,
+) -> Result<Option<DocumentResponse>, sqlx::Error> {
+    sqlx::query_as::<_, DocumentResponse>(
         "SELECT CAST(id AS TEXT) AS id,
                 CAST(workspace_id AS TEXT) AS workspace_id,
                 CAST(project_id AS TEXT) AS project_id,
-                kind,
+                CAST(parent_document_id AS TEXT) AS parent_document_id,
+                slug,
                 title,
-                description_md,
+                body_format,
+                body_md,
                 status,
-                priority,
+                version,
                 CAST(created_at AS TEXT) AS created_at,
                 CAST(updated_at AS TEXT) AS updated_at
-         FROM task_groups
+         FROM documents
          WHERE CAST(project_id AS TEXT) = $1 AND CAST(id AS TEXT) = $2",
     )
     .bind(project_id)
-    .bind(group_id)
+    .bind(document_id)
     .fetch_optional(pool)
     .await
 }
 
-async fn list_task_groups(
+async fn list_documents(
     State(state): State<AppState>,
     RequestId(request_id): RequestId,
     actor: ActorContext,
     Path((workspace_slug, project_slug)): Path<(String, String)>,
-) -> Result<ApiResponse<ListData<TaskGroupResponse>>, ApiError> {
+) -> Result<ApiResponse<ListData<DocumentResponse>>, ApiError> {
     let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
@@ -151,25 +183,27 @@ async fn list_task_groups(
         &workspace_id,
         &project_id,
         WorkspaceRole::Viewer,
-        Some("task_groups:read"),
+        Some("documents:read"),
         &request_id,
     )
     .await?;
 
-    let items = sqlx::query_as::<_, TaskGroupResponse>(
+    let items = sqlx::query_as::<_, DocumentResponse>(
         "SELECT CAST(id AS TEXT) AS id,
                 CAST(workspace_id AS TEXT) AS workspace_id,
                 CAST(project_id AS TEXT) AS project_id,
-                kind,
+                CAST(parent_document_id AS TEXT) AS parent_document_id,
+                slug,
                 title,
-                description_md,
+                body_format,
+                body_md,
                 status,
-                priority,
+                version,
                 CAST(created_at AS TEXT) AS created_at,
                 CAST(updated_at AS TEXT) AS updated_at
-         FROM task_groups
+         FROM documents
          WHERE CAST(project_id AS TEXT) = $1
-         ORDER BY priority DESC, created_at DESC",
+         ORDER BY created_at DESC",
     )
     .bind(&project_id)
     .fetch_all(&state.pool)
@@ -188,20 +222,21 @@ async fn list_task_groups(
     })
 }
 
-async fn create_task_group(
+async fn create_document(
     State(state): State<AppState>,
     RequestId(request_id): RequestId,
     actor: ActorContext,
     Path((workspace_slug, project_slug)): Path<(String, String)>,
-    Json(body): Json<CreateTaskGroupRequest>,
-) -> Result<Created<TaskGroupResponse>, ApiError> {
+    Json(body): Json<CreateDocumentRequest>,
+) -> Result<Created<DocumentResponse>, ApiError> {
     if body.title.trim().is_empty() {
         return Err(ApiError::validation_error(
             &request_id,
             "title must not be empty",
         ));
     }
-    validate_kind(&body.kind, &request_id)?;
+    validate_slug(&body.slug, &request_id)?;
+    validate_body_format(&body.body_format, &request_id)?;
     validate_status(&body.status, &request_id)?;
 
     let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
@@ -221,40 +256,56 @@ async fn create_task_group(
     )
     .await?;
 
-    let group_id = Uuid::new_v4().to_string();
+    let parent_document_id = if let Some(parent_id) = body.parent_document_id.as_deref() {
+        let parent = fetch_document(&state.pool, &project_id, parent_id)
+            .await
+            .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+        if parent.is_none() {
+            return Err(ApiError::not_found(
+                &request_id,
+                "parent document not found in this project",
+            ));
+        }
+        Some(parent_id.to_string())
+    } else {
+        None
+    };
+
+    let document_id = Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO task_groups
-         (id, workspace_id, project_id, kind, title, description_md, status, priority)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        "INSERT INTO documents
+         (id, workspace_id, project_id, parent_document_id, slug, title, body_format, body_md, status, version)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)",
     )
-    .bind(&group_id)
+    .bind(&document_id)
     .bind(&workspace_id)
     .bind(&project_id)
-    .bind(&body.kind)
+    .bind(&parent_document_id)
+    .bind(&body.slug)
     .bind(body.title.trim())
-    .bind(&body.description_md)
+    .bind(&body.body_format)
+    .bind(&body.body_md)
     .bind(&body.status)
-    .bind(body.priority)
     .execute(&state.pool)
     .await
     .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
-    let group = fetch_task_group(&state.pool, &project_id, &group_id)
+    let document = fetch_document(&state.pool, &project_id, &document_id)
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
-        .ok_or_else(|| ApiError::internal(&request_id, "task group not found after insert"))?;
+        .ok_or_else(|| ApiError::internal(&request_id, "document not found after insert"))?;
 
     emit_audit(AuditEvent {
         request_id: request_id.clone(),
         actor,
-        action: "task_group.created".to_string(),
-        resource_kind: "task_group".to_string(),
-        resource_id: group_id,
+        action: "document.created".to_string(),
+        resource_kind: "document".to_string(),
+        resource_id: document_id,
         payload: None,
     });
 
     Ok(Created(ApiResponse {
-        data: group,
+        data: document,
         meta: ResponseMeta {
             request_id,
             audit_event_id: None,
@@ -262,12 +313,12 @@ async fn create_task_group(
     }))
 }
 
-async fn get_task_group(
+async fn get_document(
     State(state): State<AppState>,
     RequestId(request_id): RequestId,
     actor: ActorContext,
-    Path((workspace_slug, project_slug, group_id)): Path<(String, String, String)>,
-) -> Result<ApiResponse<TaskGroupResponse>, ApiError> {
+    Path((workspace_slug, project_slug, document_id)): Path<(String, String, String)>,
+) -> Result<ApiResponse<DocumentResponse>, ApiError> {
     let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
@@ -280,18 +331,18 @@ async fn get_task_group(
         &workspace_id,
         &project_id,
         WorkspaceRole::Viewer,
-        Some("task_groups:read"),
+        Some("documents:read"),
         &request_id,
     )
     .await?;
 
-    let group = fetch_task_group(&state.pool, &project_id, &group_id)
+    let document = fetch_document(&state.pool, &project_id, &document_id)
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
-        .ok_or_else(|| ApiError::not_found(&request_id, "task group not found"))?;
+        .ok_or_else(|| ApiError::not_found(&request_id, "document not found"))?;
 
     Ok(ApiResponse {
-        data: group,
+        data: document,
         meta: ResponseMeta {
             request_id,
             audit_event_id: None,
@@ -299,13 +350,13 @@ async fn get_task_group(
     })
 }
 
-async fn update_task_group(
+async fn update_document(
     State(state): State<AppState>,
     RequestId(request_id): RequestId,
     actor: ActorContext,
-    Path((workspace_slug, project_slug, group_id)): Path<(String, String, String)>,
-    Json(body): Json<UpdateTaskGroupRequest>,
-) -> Result<ApiResponse<TaskGroupResponse>, ApiError> {
+    Path((workspace_slug, project_slug, document_id)): Path<(String, String, String)>,
+    Json(body): Json<UpdateDocumentRequest>,
+) -> Result<ApiResponse<DocumentResponse>, ApiError> {
     let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
@@ -323,11 +374,8 @@ async fn update_task_group(
     )
     .await?;
 
-    if let Some(ref kind) = body.kind {
-        validate_kind(kind, &request_id)?;
-    }
-    if let Some(ref status) = body.status {
-        validate_status(status, &request_id)?;
+    if let Some(ref slug) = body.slug {
+        validate_slug(slug, &request_id)?;
     }
     if let Some(ref title) = body.title {
         if title.trim().is_empty() {
@@ -337,45 +385,87 @@ async fn update_task_group(
             ));
         }
     }
+    if let Some(ref body_format) = body.body_format {
+        validate_body_format(body_format, &request_id)?;
+    }
+    if let Some(ref status) = body.status {
+        validate_status(status, &request_id)?;
+    }
 
-    let task_group = fetch_task_group(&state.pool, &project_id, &group_id)
+    let current = fetch_document(&state.pool, &project_id, &document_id)
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
-        .ok_or_else(|| ApiError::not_found(&request_id, "task group not found"))?;
+        .ok_or_else(|| ApiError::not_found(&request_id, "document not found"))?;
+
+    if current.version != body.version {
+        return Err(ApiError::conflict(
+            &request_id,
+            "document version is stale; reload before updating",
+        ));
+    }
+
+    let parent_document_id = match body.parent_document_id {
+        Some(Some(ref parent_id)) => {
+            if parent_id == &document_id {
+                return Err(ApiError::validation_error(
+                    &request_id,
+                    "document cannot be its own parent",
+                ));
+            }
+            let parent = fetch_document(&state.pool, &project_id, parent_id)
+                .await
+                .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+            if parent.is_none() {
+                return Err(ApiError::not_found(
+                    &request_id,
+                    "parent document not found in this project",
+                ));
+            }
+            Some(parent_id.to_string())
+        }
+        Some(None) => None,
+        None => current.parent_document_id,
+    };
 
     sqlx::query(
-        "UPDATE task_groups
-         SET kind = COALESCE($1, kind),
+        "UPDATE documents
+         SET slug = COALESCE($1, slug),
              title = COALESCE($2, title),
-             description_md = COALESCE($3, description_md),
-             status = COALESCE($4, status),
-             priority = COALESCE($5, priority),
+             body_md = COALESCE($3, body_md),
+             body_format = COALESCE($4, body_format),
+             status = COALESCE($5, status),
+             parent_document_id = $6,
+             version = version + 1,
              updated_at = CURRENT_TIMESTAMP
-         WHERE CAST(id AS TEXT) = $6 AND CAST(project_id AS TEXT) = $7",
+         WHERE CAST(id AS TEXT) = $7
+           AND CAST(project_id AS TEXT) = $8
+           AND version = $9",
     )
-    .bind(body.kind.as_deref())
+    .bind(body.slug.as_deref())
     .bind(body.title.as_deref().map(str::trim))
-    .bind(body.description_md.as_deref())
+    .bind(body.body_md.as_deref())
+    .bind(body.body_format.as_deref())
     .bind(body.status.as_deref())
-    .bind(body.priority)
-    .bind(&group_id)
+    .bind(&parent_document_id)
+    .bind(&document_id)
     .bind(&project_id)
+    .bind(body.version)
     .execute(&state.pool)
     .await
     .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
-    let updated = fetch_task_group(&state.pool, &project_id, &group_id)
+    let updated = fetch_document(&state.pool, &project_id, &document_id)
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
-        .ok_or_else(|| ApiError::internal(&request_id, "task group not found after update"))?;
+        .ok_or_else(|| ApiError::internal(&request_id, "document not found after update"))?;
 
     emit_audit(AuditEvent {
         request_id: request_id.clone(),
         actor,
-        action: "task_group.updated".to_string(),
-        resource_kind: "task_group".to_string(),
-        resource_id: group_id,
-        payload: Some(serde_json::json!({ "previous_title": task_group.title })),
+        action: "document.updated".to_string(),
+        resource_kind: "document".to_string(),
+        resource_id: document_id,
+        payload: Some(serde_json::json!({ "version": updated.version })),
     });
 
     Ok(ApiResponse {
@@ -387,11 +477,11 @@ async fn update_task_group(
     })
 }
 
-async fn delete_task_group(
+async fn delete_document(
     State(state): State<AppState>,
     RequestId(request_id): RequestId,
     actor: ActorContext,
-    Path((workspace_slug, project_slug, group_id)): Path<(String, String, String)>,
+    Path((workspace_slug, project_slug, document_id)): Path<(String, String, String)>,
 ) -> Result<StatusCode, ApiError> {
     let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
@@ -417,20 +507,20 @@ async fn delete_task_group(
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
     sqlx::query(
-        "UPDATE tasks SET group_id = NULL
-         WHERE CAST(group_id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2",
+        "UPDATE documents SET parent_document_id = NULL
+         WHERE CAST(parent_document_id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2",
     )
-    .bind(&group_id)
+    .bind(&document_id)
     .bind(&project_id)
     .execute(&mut *tx)
     .await
     .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
     let affected = sqlx::query(
-        "DELETE FROM task_groups
+        "DELETE FROM documents
          WHERE CAST(id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2",
     )
-    .bind(&group_id)
+    .bind(&document_id)
     .bind(&project_id)
     .execute(&mut *tx)
     .await
@@ -438,7 +528,7 @@ async fn delete_task_group(
     .rows_affected();
 
     if affected == 0 {
-        return Err(ApiError::not_found(&request_id, "task group not found"));
+        return Err(ApiError::not_found(&request_id, "document not found"));
     }
 
     tx.commit()
@@ -448,9 +538,9 @@ async fn delete_task_group(
     emit_audit(AuditEvent {
         request_id: request_id.clone(),
         actor,
-        action: "task_group.deleted".to_string(),
-        resource_kind: "task_group".to_string(),
-        resource_id: group_id,
+        action: "document.deleted".to_string(),
+        resource_kind: "document".to_string(),
+        resource_id: document_id,
         payload: None,
     });
 
@@ -522,22 +612,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_task_group_returns_201() {
+    async fn document_roundtrip_and_version_conflict() {
         let (router, member_id) = setup().await;
-        let resp = router
+        let create_resp = router
+            .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/task-groups")
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/documents")
                     .header("content-type", "application/json")
                     .header(ACTOR_KIND, "human")
                     .header(ACTOR_ID, &member_id)
                     .body(Body::from(
                         json!({
-                            "kind": "epic",
-                            "title": "Foundation",
-                            "description_md": "Group work",
-                            "priority": 5
+                            "slug": "api-contract",
+                            "title": "API Contract",
+                            "body_md": "# Hello"
                         })
                         .to_string(),
                     ))
@@ -545,7 +635,56 @@ mod tests {
             )
             .await
             .unwrap();
+        assert_eq!(create_resp.status(), StatusCode::CREATED);
+        let created: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(create_resp.into_body(), 1024 * 1024)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let document_id = created["data"]["id"].as_str().unwrap().to_string();
 
-        assert_eq!(resp.status(), StatusCode::CREATED);
+        let patch_resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!(
+                        "/api/v1/workspaces/dev-workspace/projects/main-project/documents/{document_id}"
+                    ))
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::from(json!({
+                        "version": 1,
+                        "title": "API Contract v2",
+                        "body_md": "# Updated"
+                    }).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(patch_resp.status(), StatusCode::OK);
+
+        let conflict_resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!(
+                        "/api/v1/workspaces/dev-workspace/projects/main-project/documents/{document_id}"
+                    ))
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::from(json!({
+                        "version": 1,
+                        "title": "Stale"
+                    }).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(conflict_resp.status(), StatusCode::CONFLICT);
     }
 }

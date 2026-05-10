@@ -136,6 +136,19 @@ pub struct UpdateTaskStatusRequest {
     pub status: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateTaskRequest {
+    pub title: Option<String>,
+    pub group_id: Option<String>,
+    pub parent_task_id: Option<String>,
+    pub description_md: Option<String>,
+    pub priority: Option<String>,
+    pub rank_key: Option<String>,
+    pub assignee_type: Option<String>,
+    pub assignee_id: Option<String>,
+    pub status: Option<String>,
+}
+
 /// Optional query filters for the task list endpoint.
 #[derive(Debug, Deserialize)]
 pub struct ListTasksQuery {
@@ -164,7 +177,7 @@ pub fn routes() -> Router<AppState> {
         )
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/tasks/{task_id}",
-            get(get_task).delete(delete_task),
+            get(get_task).patch(update_task).delete(delete_task),
         )
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/tasks/{task_id}/status",
@@ -299,17 +312,17 @@ async fn list_tasks(
          ORDER BY t.rank_key
          LIMIT $5",
     )
-        .bind(project.id.clone())
-        .bind(query.status.clone())
-        .bind(query.group_id.clone())
-        .bind(query.assignee_id.clone())
-        .bind(limit)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, project_id = %project.id, "db error listing tasks");
-            ApiError::internal(&request_id, "database error")
-        })?;
+    .bind(project.id.clone())
+    .bind(query.status.clone())
+    .bind(query.group_id.clone())
+    .bind(query.assignee_id.clone())
+    .bind(limit)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, project_id = %project.id, "db error listing tasks");
+        ApiError::internal(&request_id, "database error")
+    })?;
 
     let (total,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*)
@@ -319,16 +332,16 @@ async fn list_tasks(
            AND ($3 IS NULL OR CAST(t.group_id AS TEXT) = $3)
            AND ($4 IS NULL OR CAST(t.assignee_id AS TEXT) = $4)",
     )
-        .bind(project.id.clone())
-        .bind(query.status.clone())
-        .bind(query.group_id.clone())
-        .bind(query.assignee_id.clone())
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, project_id = %project.id, "db error counting tasks");
-            ApiError::internal(&request_id, "database error")
-        })?;
+    .bind(project.id.clone())
+    .bind(query.status.clone())
+    .bind(query.group_id.clone())
+    .bind(query.assignee_id.clone())
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, project_id = %project.id, "db error counting tasks");
+        ApiError::internal(&request_id, "database error")
+    })?;
 
     let items: Vec<TaskDetail> = rows.into_iter().map(TaskDetail::from).collect();
     let next_cursor = if total > limit {
@@ -339,7 +352,10 @@ async fn list_tasks(
 
     Ok(ApiResponse {
         data: ListData { items, next_cursor },
-        meta: ResponseMeta { request_id, audit_event_id: None },
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
     })
 }
 
@@ -381,7 +397,225 @@ async fn get_task(
 
     Ok(ApiResponse {
         data: TaskDetail::from(task),
-        meta: ResponseMeta { request_id, audit_event_id: None },
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
+    })
+}
+
+/// `PATCH /workspaces/:workspace_slug/projects/:project_slug/tasks/:task_id`
+///
+/// Updates task metadata without changing dependency relations. Status may be
+/// updated here as well for clients that do not use the dedicated status route.
+async fn update_task(
+    State(state): State<AppState>,
+    Path((workspace_slug, project_slug, task_id)): Path<(String, String, String)>,
+    RequestId(request_id): RequestId,
+    actor: ActorContext,
+    Json(body): Json<UpdateTaskRequest>,
+) -> Result<ApiResponse<TaskDetail>, ApiError> {
+    if let Some(ref title) = body.title {
+        if title.trim().is_empty() {
+            return Err(ApiError::validation_error(
+                &request_id,
+                "title must not be empty",
+            ));
+        }
+    }
+    if let Some(ref priority) = body.priority {
+        if !["low", "normal", "high", "critical"].contains(&priority.as_str()) {
+            return Err(ApiError::validation_error(
+                &request_id,
+                "priority must be one of: low, normal, high, critical",
+            ));
+        }
+    }
+    if let Some(ref status) = body.status {
+        if !["todo", "in_progress", "done", "cancelled"].contains(&status.as_str()) {
+            return Err(ApiError::validation_error(
+                &request_id,
+                "status must be one of: todo, in_progress, done, cancelled",
+            ));
+        }
+    }
+    if let Some(ref assignee_type) = body.assignee_type {
+        if !["workspace_member", "agent"].contains(&assignee_type.as_str()) {
+            return Err(ApiError::validation_error(
+                &request_id,
+                "assignee_type must be one of: workspace_member, agent",
+            ));
+        }
+    }
+
+    let project = resolve_project(&state.pool, &workspace_slug, &project_slug)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, workspace = %workspace_slug, project = %project_slug, "db error resolving project");
+            ApiError::internal(&request_id, "database error")
+        })?
+        .ok_or_else(|| ApiError::not_found(&request_id, "project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &project.workspace_id,
+        &project.id,
+        WorkspaceRole::Editor,
+        None,
+        &request_id,
+    )
+    .await?;
+
+    let current = fetch_task_detail(&state.pool, &project.id, &task_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, task_id = %task_id, "db error fetching task for update");
+            ApiError::internal(&request_id, "database error")
+        })?
+        .ok_or_else(|| ApiError::not_found(&request_id, "task not found"))?;
+
+    if let Some(ref group_id) = body.group_id {
+        let found: Option<(String,)> = sqlx::query_as(
+            "SELECT CAST(id AS TEXT) AS id
+             FROM task_groups
+             WHERE CAST(id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2",
+        )
+        .bind(group_id)
+        .bind(&project.id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+        if found.is_none() {
+            return Err(ApiError::not_found(&request_id, "task group not found"));
+        }
+    }
+
+    if let Some(ref parent_task_id) = body.parent_task_id {
+        if parent_task_id == &task_id {
+            return Err(ApiError::validation_error(
+                &request_id,
+                "task cannot be its own parent",
+            ));
+        }
+        let found: Option<(String,)> = sqlx::query_as(
+            "SELECT CAST(id AS TEXT) AS id
+             FROM tasks
+             WHERE CAST(id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2",
+        )
+        .bind(parent_task_id)
+        .bind(&project.id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+        if found.is_none() {
+            return Err(ApiError::not_found(&request_id, "parent task not found"));
+        }
+    }
+
+    let next_title = body
+        .title
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or(&current.title);
+    let next_description = body
+        .description_md
+        .as_deref()
+        .or(current.description_md.as_deref());
+    let next_priority = body.priority.as_deref().unwrap_or(&current.priority);
+    let next_rank_key = body.rank_key.as_deref().unwrap_or(&current.rank_key);
+    let next_status = body.status.as_deref().unwrap_or(&current.status);
+    let next_assignee_type = body
+        .assignee_type
+        .as_deref()
+        .or(current.assignee_type.as_deref());
+    let next_assignee_id = body
+        .assignee_id
+        .as_deref()
+        .or(current.assignee_id.as_deref());
+    let next_group_id = body.group_id.as_deref().or(current.group_id.as_deref());
+    let next_parent_task_id = body
+        .parent_task_id
+        .as_deref()
+        .or(current.parent_task_id.as_deref());
+
+    let update_sql = if state.db_backend == DatabaseBackend::Postgres {
+        "UPDATE tasks
+            SET title = $1,
+                description_md = $2,
+                status = $3,
+                priority = $4,
+                rank_key = $5,
+                group_id = CAST($6 AS UUID),
+                parent_task_id = CAST($7 AS UUID),
+                assignee_type = $8,
+                assignee_id = CAST($9 AS UUID),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE CAST(id AS UUID) = CAST($10 AS UUID)
+              AND CAST(project_id AS UUID) = CAST($11 AS UUID)"
+    } else {
+        "UPDATE tasks
+            SET title = $1,
+                description_md = $2,
+                status = $3,
+                priority = $4,
+                rank_key = $5,
+                group_id = $6,
+                parent_task_id = $7,
+                assignee_type = $8,
+                assignee_id = $9,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $10
+              AND project_id = $11"
+    };
+
+    let affected = sqlx::query(update_sql)
+        .bind(next_title)
+        .bind(next_description)
+        .bind(next_status)
+        .bind(next_priority)
+        .bind(next_rank_key)
+        .bind(next_group_id)
+        .bind(next_parent_task_id)
+        .bind(next_assignee_type)
+        .bind(next_assignee_id)
+        .bind(&task_id)
+        .bind(&project.id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, task_id = %task_id, "db error updating task");
+            ApiError::internal(&request_id, "database error")
+        })?
+        .rows_affected();
+
+    if affected == 0 {
+        return Err(ApiError::not_found(&request_id, "task not found"));
+    }
+
+    let task = fetch_task_detail(&state.pool, &project.id, &task_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, task_id = %task_id, "db error fetching updated task");
+            ApiError::internal(&request_id, "database error")
+        })?
+        .ok_or_else(|| ApiError::internal(&request_id, "task not found after update"))?;
+
+    emit_audit(AuditEvent {
+        request_id: request_id.clone(),
+        actor,
+        action: "task.updated".to_string(),
+        resource_kind: "task".to_string(),
+        resource_id: task_id,
+        payload: None,
+    });
+
+    Ok(ApiResponse {
+        data: TaskDetail::from(task),
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
     })
 }
 
@@ -398,7 +632,10 @@ async fn create_task(
 ) -> Result<Created<TaskDetail>, ApiError> {
     // ── Input validation ──────────────────────────────────────────────────────
     if body.title.trim().is_empty() {
-        return Err(ApiError::validation_error(&request_id, "title must not be empty"));
+        return Err(ApiError::validation_error(
+            &request_id,
+            "title must not be empty",
+        ));
     }
     if !["low", "normal", "high", "critical"].contains(&body.priority.as_str()) {
         return Err(ApiError::validation_error(
@@ -502,7 +739,10 @@ async fn create_task(
 
     Ok(Created(ApiResponse {
         data: TaskDetail::from(task),
-        meta: ResponseMeta { request_id, audit_event_id: None },
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
     }))
 }
 
@@ -587,7 +827,10 @@ async fn update_task_status(
 
     Ok(ApiResponse {
         data: TaskDetail::from(task),
-        meta: ResponseMeta { request_id, audit_event_id: None },
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
     })
 }
 
@@ -725,9 +968,8 @@ mod validation_tests {
         task_id: &str,
         body: serde_json::Value,
     ) -> axum::http::Response<Body> {
-        let uri = format!(
-            "/api/v1/workspaces/{workspace}/projects/{project}/tasks/{task_id}/status"
-        );
+        let uri =
+            format!("/api/v1/workspaces/{workspace}/projects/{project}/tasks/{task_id}/status");
         app.oneshot(
             Request::builder()
                 .method("PATCH")
@@ -748,8 +990,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn create_task_rejects_whitespace_only_title() {
-        let resp =
-            post_task(app(), "ws", "proj", serde_json::json!({ "title": "   " })).await;
+        let resp = post_task(app(), "ws", "proj", serde_json::json!({ "title": "   " })).await;
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
 
@@ -826,7 +1067,15 @@ mod route_tests {
     const ACTOR_KIND: &str = "x-actor-kind";
     const ACTOR_ID: &str = "x-actor-id";
 
-    async fn setup() -> (AppState, axum::Router, String, String, String, String, String) {
+    async fn setup() -> (
+        AppState,
+        axum::Router,
+        String,
+        String,
+        String,
+        String,
+        String,
+    ) {
         let pool = any_test_pool().await;
         let state = AppState::new(pool, crate::db::DatabaseBackend::Sqlite);
         let workspace_id = Uuid::new_v4().to_string();
@@ -956,33 +1205,30 @@ mod route_tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
-        let (parent_count,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM tasks WHERE id = ? AND project_id = ?",
-        )
-        .bind(&parent_task_id)
-        .bind(&project_id)
-        .fetch_one(&state.pool)
-        .await
-        .unwrap();
+        let (parent_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE id = ? AND project_id = ?")
+                .bind(&parent_task_id)
+                .bind(&project_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
         assert_eq!(parent_count, 0);
 
-        let (child_parent_id,): (Option<String>,) = sqlx::query_as(
-            "SELECT parent_task_id FROM tasks WHERE id = ? AND project_id = ?",
-        )
-        .bind(&child_task_id)
-        .bind(&project_id)
-        .fetch_one(&state.pool)
-        .await
-        .unwrap();
+        let (child_parent_id,): (Option<String>,) =
+            sqlx::query_as("SELECT parent_task_id FROM tasks WHERE id = ? AND project_id = ?")
+                .bind(&child_task_id)
+                .bind(&project_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
         assert!(child_parent_id.is_none());
 
-        let (dependency_count,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM task_dependencies WHERE project_id = ?",
-        )
-        .bind(&project_id)
-        .fetch_one(&state.pool)
-        .await
-        .unwrap();
+        let (dependency_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM task_dependencies WHERE project_id = ?")
+                .bind(&project_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
         assert_eq!(dependency_count, 0);
     }
 }
@@ -1212,12 +1458,11 @@ mod repository_semantics {
 
         assert_eq!(affected, 1);
 
-        let (status,): (String,) =
-            sqlx::query_as("SELECT status FROM tasks WHERE id = ?")
-                .bind(seed.task_ids[0].to_string())
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let (status,): (String,) = sqlx::query_as("SELECT status FROM tasks WHERE id = ?")
+            .bind(seed.task_ids[0].to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(status, "in_progress");
     }
 
@@ -1239,6 +1484,9 @@ mod repository_semantics {
         .unwrap()
         .rows_affected();
 
-        assert_eq!(affected, 0, "must not update a task belonging to a different project");
+        assert_eq!(
+            affected, 0,
+            "must not update a task belonging to a different project"
+        );
     }
 }

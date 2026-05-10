@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
+use crate::db::DatabaseBackend;
 use crate::http::{
     access::{require_project_access, WorkspaceRole},
     actor::{ActorContext, ActorKind},
@@ -17,7 +18,6 @@ use crate::http::{
     request_id::RequestId,
     response::{ApiResponse, Created, ListData, ResponseMeta},
 };
-use crate::db::DatabaseBackend;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -133,6 +133,13 @@ pub struct CreateNotePayload {
     pub agent_session_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateNotePayload {
+    pub kind: Option<NoteKind>,
+    pub title: Option<Option<String>>,
+    pub body_md: Option<String>,
+}
+
 async fn resolve_project(
     pool: &sqlx::AnyPool,
     workspace_slug: &str,
@@ -161,8 +168,8 @@ async fn list_notes(
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
-    let (workspace_id, project_id) = ids
-        .ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
+    let (workspace_id, project_id) =
+        ids.ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
 
     require_project_access(
         &state.pool,
@@ -177,10 +184,10 @@ async fn list_notes(
 
     let (total,): (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM notes WHERE CAST(project_id AS TEXT) = $1")
-        .bind(&project_id)
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+            .bind(&project_id)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
     let offset = ((pagination.page - 1) * pagination.per_page) as i64;
     let limit = pagination.per_page as i64;
@@ -221,7 +228,10 @@ async fn list_notes(
 
     Ok(ApiResponse {
         data: ListData { items, next_cursor },
-        meta: ResponseMeta { request_id, audit_event_id: None },
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
     })
 }
 
@@ -233,15 +243,18 @@ async fn create_note(
     Json(payload): Json<CreateNotePayload>,
 ) -> Result<Created<NoteResponse>, ApiError> {
     if payload.body_md.trim().is_empty() {
-        return Err(ApiError::validation_error(&request_id, "body_md must not be empty"));
+        return Err(ApiError::validation_error(
+            &request_id,
+            "body_md must not be empty",
+        ));
     }
 
     let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
-    let (workspace_id, project_id) = ids
-        .ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
+    let (workspace_id, project_id) =
+        ids.ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
 
     require_project_access(
         &state.pool,
@@ -284,18 +297,18 @@ async fn create_note(
     };
 
     sqlx::query(insert_note_sql)
-    .bind(&note_id)
-    .bind(&workspace_id)
-    .bind(&project_id)
-    .bind(&payload.agent_session_id)
-    .bind(payload.kind.as_str())
-    .bind(author_type.as_str())
-    .bind(&actor.actor_id)
-    .bind(&payload.title)
-    .bind(&payload.body_md)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+        .bind(&note_id)
+        .bind(&workspace_id)
+        .bind(&project_id)
+        .bind(&payload.agent_session_id)
+        .bind(payload.kind.as_str())
+        .bind(author_type.as_str())
+        .bind(&actor.actor_id)
+        .bind(&payload.title)
+        .bind(&payload.body_md)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
     let row: NoteRow = sqlx::query_as(
         "SELECT CAST(id AS TEXT) AS id, CAST(project_id AS TEXT) AS project_id, \
@@ -324,7 +337,10 @@ async fn create_note(
 
     Ok(Created(ApiResponse {
         data: note,
-        meta: ResponseMeta { request_id, audit_event_id: None },
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
     }))
 }
 
@@ -338,8 +354,8 @@ async fn get_note(
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
-    let (workspace_id, project_id) = ids
-        .ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
+    let (workspace_id, project_id) =
+        ids.ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
 
     require_project_access(
         &state.pool,
@@ -373,7 +389,10 @@ async fn get_note(
 
     Ok(ApiResponse {
         data: note,
-        meta: ResponseMeta { request_id, audit_event_id: None },
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
     })
 }
 
@@ -387,8 +406,8 @@ async fn delete_note(
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
-    let (workspace_id, project_id) = ids
-        .ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
+    let (workspace_id, project_id) =
+        ids.ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
 
     require_project_access(
         &state.pool,
@@ -428,6 +447,129 @@ async fn delete_note(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn update_note(
+    State(state): State<AppState>,
+    Path((workspace_slug, project_slug, note_id)): Path<(String, String, String)>,
+    RequestId(request_id): RequestId,
+    actor: ActorContext,
+    Json(payload): Json<UpdateNotePayload>,
+) -> Result<ApiResponse<NoteResponse>, ApiError> {
+    if let Some(ref body_md) = payload.body_md {
+        if body_md.trim().is_empty() {
+            return Err(ApiError::validation_error(
+                &request_id,
+                "body_md must not be empty",
+            ));
+        }
+    }
+
+    let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+
+    let (workspace_id, project_id) =
+        ids.ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &workspace_id,
+        &project_id,
+        WorkspaceRole::Editor,
+        Some("notes:write"),
+        &request_id,
+    )
+    .await?;
+
+    let current: NoteRow = sqlx::query_as(
+        "SELECT CAST(id AS TEXT) AS id, CAST(project_id AS TEXT) AS project_id,
+            CAST(agent_session_id AS TEXT) AS agent_session_id,
+            kind, author_type, CAST(author_id AS TEXT) AS author_id, title, body_md,
+            CAST(created_at AS TEXT) AS created_at, CAST(updated_at AS TEXT) AS updated_at
+         FROM notes
+         WHERE CAST(id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2",
+    )
+    .bind(&note_id)
+    .bind(&project_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
+    .ok_or_else(|| ApiError::not_found(&request_id, "note not found"))?;
+
+    let next_kind = payload
+        .kind
+        .as_ref()
+        .map(NoteKind::as_str)
+        .unwrap_or_else(|| current.kind.as_str());
+    let next_title = match payload.title {
+        Some(Some(ref title)) if title.trim().is_empty() => {
+            return Err(ApiError::validation_error(
+                &request_id,
+                "title must not be empty",
+            ));
+        }
+        Some(Some(ref title)) => Some(title.trim().to_string()),
+        Some(None) => None,
+        None => current.title.clone(),
+    };
+    let next_body_md = payload.body_md.as_deref().unwrap_or(&current.body_md);
+
+    let affected = sqlx::query(
+        "UPDATE notes
+         SET kind = $1,
+             title = $2,
+             body_md = $3,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE CAST(id AS TEXT) = $4 AND CAST(project_id AS TEXT) = $5",
+    )
+    .bind(next_kind)
+    .bind(&next_title)
+    .bind(next_body_md)
+    .bind(&note_id)
+    .bind(&project_id)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
+    .rows_affected();
+
+    if affected == 0 {
+        return Err(ApiError::not_found(&request_id, "note not found"));
+    }
+
+    let row: NoteRow = sqlx::query_as(
+        "SELECT CAST(id AS TEXT) AS id, CAST(project_id AS TEXT) AS project_id, \
+            CAST(agent_session_id AS TEXT) AS agent_session_id, \
+            kind, author_type, CAST(author_id AS TEXT) AS author_id, title, body_md, \
+            CAST(created_at AS TEXT) AS created_at, CAST(updated_at AS TEXT) AS updated_at \
+         FROM notes WHERE CAST(id AS TEXT) = $1",
+    )
+    .bind(&note_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+
+    let note = row
+        .into_response()
+        .map_err(|e| ApiError::internal(&request_id, e))?;
+
+    emit_audit(AuditEvent {
+        request_id: request_id.clone(),
+        actor,
+        action: "note.updated".to_string(),
+        resource_kind: "note".to_string(),
+        resource_id: note_id,
+        payload: None,
+    });
+
+    Ok(ApiResponse {
+        data: note,
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
+    })
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route(
@@ -436,7 +578,7 @@ pub fn routes() -> Router<AppState> {
         )
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/notes/{note_id}",
-            get(get_note).delete(delete_note),
+            get(get_note).patch(update_note).delete(delete_note),
         )
 }
 
@@ -537,7 +679,8 @@ mod tests {
     #[tokio::test]
     async fn list_notes_returns_empty_for_fresh_project() {
         let ctx = setup().await;
-        let resp = ctx.router
+        let resp = ctx
+            .router
             .oneshot(
                 Request::builder()
                     .method("GET")
@@ -566,7 +709,8 @@ mod tests {
             "agent_session_id": null
         });
 
-        let create_resp = ctx.router
+        let create_resp = ctx
+            .router
             .clone()
             .oneshot(
                 Request::builder()
@@ -591,7 +735,8 @@ mod tests {
             "workspace_member"
         );
 
-        let list_resp = ctx.router
+        let list_resp = ctx
+            .router
             .oneshot(
                 Request::builder()
                     .method("GET")
@@ -618,7 +763,8 @@ mod tests {
             "agent_session_id": null
         });
 
-        let create_resp = ctx.router
+        let create_resp = ctx
+            .router
             .clone()
             .oneshot(
                 Request::builder()
@@ -642,7 +788,8 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let get_resp = ctx.router
+        let get_resp = ctx
+            .router
             .clone()
             .oneshot(
                 Request::builder()
@@ -668,7 +815,8 @@ mod tests {
     #[tokio::test]
     async fn get_note_returns_404_for_unknown_id() {
         let ctx = setup().await;
-        let resp = ctx.router
+        let resp = ctx
+            .router
             .oneshot(
                 Request::builder()
                     .method("GET")
@@ -685,6 +833,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn update_note_changes_title_and_body() {
+        let ctx = setup().await;
+
+        let create_payload = serde_json::json!({
+            "kind": "decision",
+            "title": "Original",
+            "body_md": "Original body",
+            "agent_session_id": null
+        });
+
+        let create_resp = ctx
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(notes_url())
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &ctx.member_id)
+                    .body(Body::from(serde_json::to_vec(&create_payload).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), StatusCode::CREATED);
+        let note_id = body_json(create_resp.into_body()).await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let update_resp = ctx
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(note_url(&note_id))
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &ctx.member_id)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "title": "Updated",
+                            "body_md": "Updated body",
+                            "kind": "worklog"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(update_resp.status(), StatusCode::OK);
+
+        let update_body = body_json(update_resp.into_body()).await;
+        assert_eq!(update_body["data"]["title"].as_str().unwrap(), "Updated");
+        assert_eq!(
+            update_body["data"]["body_md"].as_str().unwrap(),
+            "Updated body"
+        );
+        assert_eq!(update_body["data"]["kind"].as_str().unwrap(), "worklog");
+    }
+
+    #[tokio::test]
     async fn delete_note_removes_note_and_returns_404_afterward() {
         let ctx = setup().await;
 
@@ -695,7 +908,8 @@ mod tests {
             "agent_session_id": null
         });
 
-        let create_resp = ctx.router
+        let create_resp = ctx
+            .router
             .clone()
             .oneshot(
                 Request::builder()
@@ -716,7 +930,8 @@ mod tests {
             .unwrap()
             .to_string();
 
-        let delete_resp = ctx.router
+        let delete_resp = ctx
+            .router
             .clone()
             .oneshot(
                 Request::builder()
@@ -731,7 +946,8 @@ mod tests {
             .unwrap();
         assert_eq!(delete_resp.status(), StatusCode::NO_CONTENT);
 
-        let get_resp = ctx.router
+        let get_resp = ctx
+            .router
             .clone()
             .oneshot(
                 Request::builder()
@@ -746,7 +962,8 @@ mod tests {
             .unwrap();
         assert_eq!(get_resp.status(), StatusCode::NOT_FOUND);
 
-        let list_resp = ctx.router
+        let list_resp = ctx
+            .router
             .clone()
             .oneshot(
                 Request::builder()
@@ -773,7 +990,8 @@ mod tests {
             "agent_session_id": null
         });
 
-        let resp = ctx.router
+        let resp = ctx
+            .router
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -798,7 +1016,8 @@ mod tests {
             "agent_session_id": null
         });
 
-        let resp = ctx.router
+        let resp = ctx
+            .router
             .oneshot(
                 Request::builder()
                     .method("POST")

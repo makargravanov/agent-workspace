@@ -1,11 +1,11 @@
 use agent_workspace_api::{
-    db::{build_any_pool, DatabaseBackend, DatabaseConfig},
     app::build_router,
+    db::{build_any_pool, DatabaseBackend, DatabaseConfig},
     state::AppState,
     telemetry::init_tracing,
 };
-use std::env;
 use sqlx::migrate::MigrateError;
+use std::env;
 use tracing::info;
 
 #[tokio::main]

@@ -204,9 +204,11 @@
 | `GET` | `/api/v1/workspaces` | список доступных workspace | human | foundation |
 | `POST` | `/api/v1/workspaces` | создать workspace | human | foundation |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}` | получить workspace summary | human | foundation |
+| `PATCH` | `/api/v1/workspaces/{workspaceSlug}` | обновить workspace | owner | foundation |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects` | список проектов workspace | human | foundation |
 | `POST` | `/api/v1/workspaces/{workspaceSlug}/projects` | создать проект | `owner` | foundation |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}` | получить project summary | human | foundation |
+| `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}` | обновить проект | `owner` | foundation |
 
 ### 7.3 Workspace admin
 
@@ -233,6 +235,7 @@
 | `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups` | создать группу задач | human | mvp |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups/{groupId}` | получить группу задач | human, agent `task_groups:read` | mvp |
 | `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups/{groupId}` | обновить metadata группы | human | mvp |
+| `DELETE` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups/{groupId}` | удалить группу задач | human | mvp |
 
 ### 7.5 Tasks and dependencies
 
@@ -255,9 +258,12 @@
 | `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents` | создать документ | human | mvp |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents/{documentId}` | получить документ | human, agent `documents:read` | mvp |
 | `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents/{documentId}` | обновить документ | human | mvp |
+| `DELETE` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents/{documentId}` | удалить документ | human | mvp |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/notes` | список заметок | human, agent `notes:read` | foundation |
 | `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/notes` | создать заметку | human, agent `notes:write` | foundation |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/notes/{noteId}` | получить заметку | human, agent `notes:read` | mvp |
+| `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/notes/{noteId}` | обновить заметку | human, agent `notes:write` | foundation |
+| `DELETE` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/notes/{noteId}` | удалить заметку | human, agent `notes:write` | foundation |
 | `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/assets/uploads` | зарегистрировать upload asset | human | mvp |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/assets/{assetId}` | получить metadata asset | human, agent `assets:read` | mvp |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/assets/{assetId}/download` | скачать asset | human, agent `assets:read` | mvp |
@@ -353,7 +359,7 @@
 | `documents:read` | `GET` documents |
 | `assets:read` | `GET` asset metadata/download |
 | `notes:read` | `GET` notes |
-| `notes:write` | `POST` notes |
+| `notes:write` | `POST`, `PATCH`, `DELETE` notes |
 | `audit:read_recent` | `GET` project activity |
 
 ## 10. Что идет следующим шагом

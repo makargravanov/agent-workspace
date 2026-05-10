@@ -17,12 +17,12 @@ pub const TASK_GROUP_TITLE: &str = "First Epic";
 
 /// IDs of the row set inserted by [`seed_minimal`].
 pub struct SeedResult {
-    pub workspace_id:   Uuid,
-    pub member_id:      Uuid,
-    pub project_id:     Uuid,
-    pub task_group_id:  Uuid,
+    pub workspace_id: Uuid,
+    pub member_id: Uuid,
+    pub project_id: Uuid,
+    pub task_group_id: Uuid,
     /// Three tasks in the order they were created.
-    pub task_ids:       [Uuid; 3],
+    pub task_ids: [Uuid; 3],
 }
 
 /// Insert one workspace, one owner member, one active project, one epic task
@@ -32,23 +32,21 @@ pub struct SeedResult {
 ///
 /// Returns the IDs of every inserted row so callers can assert against them.
 pub async fn seed_minimal(pool: &SqlitePool) -> SeedResult {
-    let workspace_id  = Uuid::new_v4();
-    let member_id     = Uuid::new_v4();
-    let project_id    = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let member_id = Uuid::new_v4();
+    let project_id = Uuid::new_v4();
     let task_group_id = Uuid::new_v4();
-    let task_ids      = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
-    let dep_id        = Uuid::new_v4();
+    let task_ids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+    let dep_id = Uuid::new_v4();
 
     // workspace
-    sqlx::query(
-        "INSERT INTO workspaces (id, slug, name) VALUES (?, ?, ?)",
-    )
-    .bind(workspace_id.to_string())
-    .bind(WORKSPACE_SLUG)
-    .bind(WORKSPACE_NAME)
-    .execute(pool)
-    .await
-    .expect("insert workspace");
+    sqlx::query("INSERT INTO workspaces (id, slug, name) VALUES (?, ?, ?)")
+        .bind(workspace_id.to_string())
+        .bind(WORKSPACE_SLUG)
+        .bind(WORKSPACE_NAME)
+        .execute(pool)
+        .await
+        .expect("insert workspace");
 
     // member (owner)
     sqlx::query(
@@ -98,9 +96,15 @@ pub async fn seed_minimal(pool: &SqlitePool) -> SeedResult {
 
     // tasks
     let task_fixtures = [
-        (task_ids[0], "rank-a", "Set up repository", "todo",        "high"),
-        (task_ids[1], "rank-b", "Write initial tests",  "in_progress", "normal"),
-        (task_ids[2], "rank-c", "Deploy to staging",   "done",        "normal"),
+        (task_ids[0], "rank-a", "Set up repository", "todo", "high"),
+        (
+            task_ids[1],
+            "rank-b",
+            "Write initial tests",
+            "in_progress",
+            "normal",
+        ),
+        (task_ids[2], "rank-c", "Deploy to staging", "done", "normal"),
     ];
 
     for (id, rank_key, title, status, priority) in &task_fixtures {

@@ -9,10 +9,7 @@ use super::error::ApiError;
 /// Applies a `SetRequestId` layer that injects an auto-generated UUID into the
 /// `x-request-id` header of every incoming request that does not already carry one.
 pub fn request_id_layer() -> SetRequestIdLayer<MakeRequestUuid> {
-    SetRequestIdLayer::new(
-        HeaderName::from_static("x-request-id"),
-        MakeRequestUuid,
-    )
+    SetRequestIdLayer::new(HeaderName::from_static("x-request-id"), MakeRequestUuid)
 }
 
 /// Axum extractor that reads the `x-request-id` header set by [`request_id_layer`].

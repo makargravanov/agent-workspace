@@ -6,8 +6,8 @@ async fn main() {
     init_tracing();
 
     let mode = env::args().nth(1).unwrap_or_else(|| "stdio".to_string());
-    let api_base_url = env::var("AGENT_WORKSPACE_API_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let api_base_url =
+        env::var("AGENT_WORKSPACE_API_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     info!(mode = %mode, api_base_url = %api_base_url, "agent-workspace-mcp bootstrap started");
     info!(

@@ -112,7 +112,6 @@ pub async fn postgres_test_db() -> Option<PostgresTestDb> {
     })
 }
 
-
 #[cfg(test)]
 mod smoke {
     use super::*;
@@ -178,12 +177,11 @@ mod smoke {
         let pool = sqlite_test_pool().await;
         let seed = fixtures::seed_minimal(&pool).await;
 
-        let (name,): (String,) =
-            sqlx::query_as("SELECT name FROM workspaces WHERE id = ?")
-                .bind(seed.workspace_id.to_string())
-                .fetch_one(&pool)
-                .await
-                .expect("seeded workspace should be selectable");
+        let (name,): (String,) = sqlx::query_as("SELECT name FROM workspaces WHERE id = ?")
+            .bind(seed.workspace_id.to_string())
+            .fetch_one(&pool)
+            .await
+            .expect("seeded workspace should be selectable");
 
         assert_eq!(name, fixtures::WORKSPACE_NAME);
         pool.close().await;
@@ -194,12 +192,11 @@ mod smoke {
         let pool = sqlite_test_pool().await;
         let seed = fixtures::seed_minimal(&pool).await;
 
-        let (ws_id,): (String,) =
-            sqlx::query_as("SELECT workspace_id FROM projects WHERE id = ?")
-                .bind(seed.project_id.to_string())
-                .fetch_one(&pool)
-                .await
-                .expect("seeded project should be selectable");
+        let (ws_id,): (String,) = sqlx::query_as("SELECT workspace_id FROM projects WHERE id = ?")
+            .bind(seed.project_id.to_string())
+            .fetch_one(&pool)
+            .await
+            .expect("seeded project should be selectable");
 
         assert_eq!(ws_id, seed.workspace_id.to_string());
         pool.close().await;
@@ -210,14 +207,13 @@ mod smoke {
         let pool = sqlite_test_pool().await;
         let seed = fixtures::seed_minimal(&pool).await;
 
-        let (count,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM tasks WHERE project_id = ? AND workspace_id = ?",
-        )
-        .bind(seed.project_id.to_string())
-        .bind(seed.workspace_id.to_string())
-        .fetch_one(&pool)
-        .await
-        .expect("task count query should succeed");
+        let (count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE project_id = ? AND workspace_id = ?")
+                .bind(seed.project_id.to_string())
+                .bind(seed.workspace_id.to_string())
+                .fetch_one(&pool)
+                .await
+                .expect("task count query should succeed");
 
         assert!(count >= 3, "at least 3 tasks should be seeded; got {count}");
         pool.close().await;
@@ -247,12 +243,11 @@ mod smoke {
         let pool = sqlite_test_pool().await;
         let seed = fixtures::seed_minimal(&pool).await;
 
-        let (kind,): (String,) =
-            sqlx::query_as("SELECT kind FROM task_groups WHERE id = ?")
-                .bind(seed.task_group_id.to_string())
-                .fetch_one(&pool)
-                .await
-                .expect("seeded task_group should be selectable");
+        let (kind,): (String,) = sqlx::query_as("SELECT kind FROM task_groups WHERE id = ?")
+            .bind(seed.task_group_id.to_string())
+            .fetch_one(&pool)
+            .await
+            .expect("seeded task_group should be selectable");
 
         assert_eq!(kind, "epic");
         pool.close().await;
@@ -403,11 +398,14 @@ mod postgres_smoke {
             .expect("response");
         assert_eq!(list_workspaces.status(), StatusCode::OK);
         let list_workspaces_body = body_json(list_workspaces.into_body()).await;
-        assert_eq!(list_workspaces_body["data"]["items"].as_array().unwrap().len(), 1);
         assert_eq!(
-            list_workspaces_body["data"]["items"][0]["slug"],
-            "seed-ws"
+            list_workspaces_body["data"]["items"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
         );
+        assert_eq!(list_workspaces_body["data"]["items"][0]["slug"], "seed-ws");
 
         let create_workspace = app
             .clone()
@@ -486,7 +484,10 @@ mod postgres_smoke {
             .as_str()
             .expect("task id")
             .to_string();
-        assert_eq!(grouped_task_body["data"]["group_id"].as_str().unwrap(), task_group_id);
+        assert_eq!(
+            grouped_task_body["data"]["group_id"].as_str().unwrap(),
+            task_group_id
+        );
         assert_eq!(
             grouped_task_body["data"]["assignee_id"].as_str().unwrap(),
             member_id
@@ -603,13 +604,12 @@ mod postgres_smoke {
             .expect("response");
         assert_eq!(update_task.status(), StatusCode::OK);
 
-        let (status,): (String,) = sqlx::query_as(
-            "SELECT status FROM tasks WHERE CAST(id AS TEXT) = $1",
-        )
-        .bind(&second_task_id)
-        .fetch_one(&db.pool)
-        .await
-        .expect("fetch updated task status");
+        let (status,): (String,) =
+            sqlx::query_as("SELECT status FROM tasks WHERE CAST(id AS TEXT) = $1")
+                .bind(&second_task_id)
+                .fetch_one(&db.pool)
+                .await
+                .expect("fetch updated task status");
         assert_eq!(status, "done");
 
         let create_note = app
@@ -630,9 +630,9 @@ mod postgres_smoke {
                         .to_string(),
                     ))
                     .expect("request"),
-        )
-        .await
-        .expect("response");
+            )
+            .await
+            .expect("response");
         assert_eq!(create_note.status(), StatusCode::CREATED);
         let create_note_body = body_json(create_note.into_body()).await;
         let note_id = create_note_body["data"]["id"]
@@ -654,7 +654,10 @@ mod postgres_smoke {
             .expect("response");
         assert_eq!(list_notes.status(), StatusCode::OK);
         let list_notes_body = body_json(list_notes.into_body()).await;
-        assert_eq!(list_notes_body["data"]["items"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            list_notes_body["data"]["items"].as_array().unwrap().len(),
+            1
+        );
 
         let delete_note = app
             .clone()
@@ -705,7 +708,10 @@ mod postgres_smoke {
         assert_eq!(list_notes_after_delete.status(), StatusCode::OK);
         let list_notes_after_delete_body = body_json(list_notes_after_delete.into_body()).await;
         assert_eq!(
-            list_notes_after_delete_body["data"]["items"].as_array().unwrap().len(),
+            list_notes_after_delete_body["data"]["items"]
+                .as_array()
+                .unwrap()
+                .len(),
             0
         );
 
@@ -726,13 +732,12 @@ mod postgres_smoke {
             .expect("response");
         assert_eq!(delete_task.status(), StatusCode::NO_CONTENT);
 
-        let (deleted_task_count,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM tasks WHERE CAST(id AS TEXT) = $1",
-        )
-        .bind(&grouped_task_id)
-        .fetch_one(&db.pool)
-        .await
-        .expect("fetch deleted task count");
+        let (deleted_task_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE CAST(id AS TEXT) = $1")
+                .bind(&grouped_task_id)
+                .fetch_one(&db.pool)
+                .await
+                .expect("fetch deleted task count");
         assert_eq!(deleted_task_count, 0);
 
         let (child_parent_task_id,): (Option<String>,) = sqlx::query_as(
@@ -768,22 +773,20 @@ mod postgres_smoke {
             .expect("response");
         assert_eq!(delete_project.status(), StatusCode::NO_CONTENT);
 
-        let (project_remaining,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM projects WHERE CAST(id AS TEXT) = $1",
-        )
-        .bind(&project_id)
-        .fetch_one(&db.pool)
-        .await
-        .expect("fetch project count");
+        let (project_remaining,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM projects WHERE CAST(id AS TEXT) = $1")
+                .bind(&project_id)
+                .fetch_one(&db.pool)
+                .await
+                .expect("fetch project count");
         assert_eq!(project_remaining, 0);
 
-        let (workspace_remaining,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM workspaces WHERE CAST(id AS TEXT) = $1",
-        )
-        .bind(&child_workspace_id)
-        .fetch_one(&db.pool)
-        .await
-        .expect("fetch workspace count");
+        let (workspace_remaining,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM workspaces WHERE CAST(id AS TEXT) = $1")
+                .bind(&child_workspace_id)
+                .fetch_one(&db.pool)
+                .await
+                .expect("fetch workspace count");
         assert_eq!(workspace_remaining, 1);
 
         let delete_workspace = app
@@ -801,13 +804,12 @@ mod postgres_smoke {
             .expect("response");
         assert_eq!(delete_workspace.status(), StatusCode::NO_CONTENT);
 
-        let (workspace_remaining,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM workspaces WHERE CAST(id AS TEXT) = $1",
-        )
-        .bind(&child_workspace_id)
-        .fetch_one(&db.pool)
-        .await
-        .expect("fetch workspace count after delete");
+        let (workspace_remaining,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM workspaces WHERE CAST(id AS TEXT) = $1")
+                .bind(&child_workspace_id)
+                .fetch_one(&db.pool)
+                .await
+                .expect("fetch workspace count after delete");
         assert_eq!(workspace_remaining, 0);
 
         db.cleanup().await;
@@ -906,6 +908,223 @@ mod postgres_smoke {
 
         assert!(slugs.contains(&"seed-ws".to_string()));
         assert!(slugs.contains(&"other-ws".to_string()));
+
+        db.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_workspace_project_task_group_document_crud() {
+        let Some(db) = postgres_test_db().await else {
+            eprintln!("skipping postgres smoke test: TEST_DATABASE_URL is not set");
+            return;
+        };
+
+        let (_workspace_id, member_id) = seed_member(
+            &db.pool,
+            "crud-ws",
+            "CRUD Workspace",
+            "test:crud-identity",
+            "Test CRUD",
+            "owner",
+        )
+        .await;
+
+        let app = build_router(AppState::new(db.pool.clone(), DatabaseBackend::Postgres));
+
+        let create_workspace = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({ "slug": "crud-child", "name": "CRUD Child" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_workspace.status(), StatusCode::CREATED);
+
+        let workspace_body = body_json(create_workspace.into_body()).await;
+        assert_eq!(
+            workspace_body["data"]["slug"].as_str().unwrap(),
+            "crud-child"
+        );
+
+        let update_workspace = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/workspaces/crud-child")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({ "slug": "crud-child-renamed", "name": "CRUD Child Renamed" })
+                            .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(update_workspace.status(), StatusCode::OK);
+
+        let update_workspace_body = body_json(update_workspace.into_body()).await;
+        assert_eq!(
+            update_workspace_body["data"]["slug"].as_str().unwrap(),
+            "crud-child-renamed"
+        );
+
+        let create_project = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/crud-child-renamed/projects")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({ "slug": "crud-proj", "name": "CRUD Project" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_project.status(), StatusCode::CREATED);
+
+        let update_project = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/workspaces/crud-child-renamed/projects/crud-proj")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(json!({ "status": "on_hold" }).to_string()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(update_project.status(), StatusCode::OK);
+
+        let create_group = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/crud-child-renamed/projects/crud-proj/task-groups")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({
+                            "kind": "epic",
+                            "title": "CRUD Group",
+                            "priority": 7
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_group.status(), StatusCode::CREATED);
+        let group_body = body_json(create_group.into_body()).await;
+        let group_id = group_body["data"]["id"].as_str().unwrap().to_string();
+
+        let patch_group = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!(
+                        "/api/v1/workspaces/crud-child-renamed/projects/crud-proj/task-groups/{group_id}"
+                    ))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({ "title": "CRUD Group Updated", "status": "done" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(patch_group.status(), StatusCode::OK);
+
+        let create_document = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/crud-child-renamed/projects/crud-proj/documents")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({
+                            "slug": "crud-doc",
+                            "title": "CRUD Doc",
+                            "body_md": "# doc"
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_document.status(), StatusCode::CREATED);
+        let document_body = body_json(create_document.into_body()).await;
+        let document_id = document_body["data"]["id"].as_str().unwrap().to_string();
+
+        let patch_document = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!(
+                        "/api/v1/workspaces/crud-child-renamed/projects/crud-proj/documents/{document_id}"
+                    ))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({
+                            "version": 1,
+                            "title": "CRUD Doc Updated",
+                            "body_md": "# doc 2"
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(patch_document.status(), StatusCode::OK);
+
+        let delete_document = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/crud-child-renamed/projects/crud-proj/documents/{document_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(delete_document.status(), StatusCode::NO_CONTENT);
 
         db.cleanup().await;
     }

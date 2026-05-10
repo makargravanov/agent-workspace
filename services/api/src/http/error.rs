@@ -20,6 +20,7 @@ impl IntoResponse for ApiError {
             "not_found" => StatusCode::NOT_FOUND,
             "unauthorised" => StatusCode::UNAUTHORIZED,
             "forbidden" => StatusCode::FORBIDDEN,
+            "conflict" => StatusCode::CONFLICT,
             "validation_error" => StatusCode::UNPROCESSABLE_ENTITY,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -50,6 +51,15 @@ impl ApiError {
         Self {
             request_id: request_id.into(),
             error_code: "forbidden".to_string(),
+            message: message.into(),
+            details: None,
+        }
+    }
+
+    pub fn conflict(request_id: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            request_id: request_id.into(),
+            error_code: "conflict".to_string(),
             message: message.into(),
             details: None,
         }
@@ -99,15 +109,27 @@ mod tests {
     }
 
     #[test]
+    fn conflict_returns_409() {
+        let err = ApiError::conflict("req-1", "stale data");
+        assert_eq!(err.into_response().status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
     fn validation_error_returns_422() {
         let err = ApiError::validation_error("req-1", "bad input");
-        assert_eq!(err.into_response().status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            err.into_response().status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 
     #[test]
     fn internal_returns_500() {
         let err = ApiError::internal("req-1", "something went wrong");
-        assert_eq!(err.into_response().status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            err.into_response().status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[test]
@@ -118,6 +140,9 @@ mod tests {
             message: "unexpected".to_string(),
             details: None,
         };
-        assert_eq!(err.into_response().status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            err.into_response().status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 }

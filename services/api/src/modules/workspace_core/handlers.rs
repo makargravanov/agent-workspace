@@ -98,7 +98,10 @@ async fn list_workspaces(
         })?;
 
     Ok(ApiResponse {
-        data: ListData { items, next_cursor: None },
+        data: ListData {
+            items,
+            next_cursor: None,
+        },
         meta: ResponseMeta {
             request_id: request_id.0,
             audit_event_id: None,
@@ -151,19 +154,19 @@ async fn create_workspace(
     };
 
     let current_member = sqlx::query_as::<_, CurrentMemberIdentityRow>(current_member_lookup_sql)
-    .bind(&actor.actor_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!(error = %e, actor_id = %actor.actor_id, "current member lookup failed");
-        ApiError::internal(&request_id.0, "failed to resolve current workspace member")
-    })?
-    .ok_or_else(|| {
-        ApiError::forbidden(
-            &request_id.0,
-            "human session is not linked to an active workspace member",
-        )
-    })?;
+        .bind(&actor.actor_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, actor_id = %actor.actor_id, "current member lookup failed");
+            ApiError::internal(&request_id.0, "failed to resolve current workspace member")
+        })?
+        .ok_or_else(|| {
+            ApiError::forbidden(
+                &request_id.0,
+                "human session is not linked to an active workspace member",
+            )
+        })?;
 
     let membership_insert_sql = match state.db_backend {
         crate::db::DatabaseBackend::Postgres => {
@@ -273,7 +276,10 @@ async fn list_projects(
         })?;
 
     Ok(ApiResponse {
-        data: ListData { items, next_cursor: None },
+        data: ListData {
+            items,
+            next_cursor: None,
+        },
         meta: ResponseMeta {
             request_id: request_id.0,
             audit_event_id: None,
@@ -585,9 +591,7 @@ async fn resolve_workspace(
             tracing::error!(error = %e, "resolve_workspace db error");
             ApiError::internal(&request_id.0, "failed to resolve workspace")
         })?
-        .ok_or_else(|| {
-            ApiError::not_found(&request_id.0, format!("workspace '{slug}' not found"))
-        })
+        .ok_or_else(|| ApiError::not_found(&request_id.0, format!("workspace '{slug}' not found")))
 }
 
 /// Minimal slug validation: non-empty, lowercase ASCII + digits + hyphens.
@@ -636,7 +640,10 @@ mod tests {
     const ACTOR_ID: &str = "x-actor-id";
 
     async fn test_router() -> Router {
-        routes().with_state(AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite))
+        routes().with_state(AppState::new(
+            any_test_pool().await,
+            crate::db::DatabaseBackend::Sqlite,
+        ))
     }
 
     async fn seed_member(
@@ -759,13 +766,11 @@ mod tests {
     async fn delete_workspace_removes_workspace_and_children() {
         let state = AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite);
         let member_id = seed_member(&state, "seed-delete-ws", "Seed Delete WS", "owner").await;
-        let (workspace_id,): (String,) = sqlx::query_as(
-            "SELECT id FROM workspaces WHERE slug = ?",
-        )
-        .bind("seed-delete-ws")
-        .fetch_one(&state.pool)
-        .await
-        .unwrap();
+        let (workspace_id,): (String,) = sqlx::query_as("SELECT id FROM workspaces WHERE slug = ?")
+            .bind("seed-delete-ws")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
         let project_id = Uuid::new_v4().to_string();
         let task_id = Uuid::new_v4().to_string();
         let note_id = Uuid::new_v4().to_string();
@@ -856,15 +861,18 @@ mod tests {
     #[tokio::test]
     async fn delete_project_removes_project_children_but_keeps_workspace() {
         let state = AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite);
-        let member_id = seed_member(&state, "seed-delete-proj-ws", "Seed Delete Project WS", "owner")
-            .await;
-        let (workspace_id,): (String,) = sqlx::query_as(
-            "SELECT id FROM workspaces WHERE slug = ?",
+        let member_id = seed_member(
+            &state,
+            "seed-delete-proj-ws",
+            "Seed Delete Project WS",
+            "owner",
         )
-        .bind("seed-delete-proj-ws")
-        .fetch_one(&state.pool)
-        .await
-        .unwrap();
+        .await;
+        let (workspace_id,): (String,) = sqlx::query_as("SELECT id FROM workspaces WHERE slug = ?")
+            .bind("seed-delete-proj-ws")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
         let project_id = Uuid::new_v4().to_string();
         let task_id = Uuid::new_v4().to_string();
         let note_id = Uuid::new_v4().to_string();

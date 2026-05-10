@@ -44,7 +44,12 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let Query(raw) = Query::<RawPaginationParams>::from_request_parts(parts, state)
             .await
-            .unwrap_or_else(|_| Query(RawPaginationParams { page: 1, per_page: 20 }));
+            .unwrap_or_else(|_| {
+                Query(RawPaginationParams {
+                    page: 1,
+                    per_page: 20,
+                })
+            });
 
         Ok(PaginationParams {
             page: raw.page.max(1),
@@ -71,7 +76,13 @@ impl<T: Serialize> Page<T> {
         } else {
             ((total as f64) / (per_page as f64)).ceil() as u32
         };
-        Self { items, total, page, per_page, total_pages }
+        Self {
+            items,
+            total,
+            page,
+            per_page,
+            total_pages,
+        }
     }
 }
 
@@ -92,7 +103,10 @@ mod tests {
         let page = Page::new(vec![1u32, 2, 3], 10, 1, 3);
         let json = serde_json::to_value(&page).unwrap();
 
-        assert_eq!(json["items"], Value::Array(vec![1.into(), 2.into(), 3.into()]));
+        assert_eq!(
+            json["items"],
+            Value::Array(vec![1.into(), 2.into(), 3.into()])
+        );
         assert_eq!(json["total"], 10);
         assert_eq!(json["page"], 1);
         assert_eq!(json["per_page"], 3);
@@ -113,20 +127,21 @@ mod tests {
             .unwrap();
         let (mut parts, _) = req.into_parts();
 
-        let params = PaginationParams::from_request_parts(&mut parts, &()).await.unwrap();
+        let params = PaginationParams::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
         assert_eq!(params.per_page, 100);
         assert_eq!(params.page, 2);
     }
 
     #[tokio::test]
     async fn missing_params_fall_back_to_defaults() {
-        let req = Request::builder()
-            .uri("/")
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri("/").body(Body::empty()).unwrap();
         let (mut parts, _) = req.into_parts();
 
-        let params = PaginationParams::from_request_parts(&mut parts, &()).await.unwrap();
+        let params = PaginationParams::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
         assert_eq!(params.page, 1);
         assert_eq!(params.per_page, 20);
     }

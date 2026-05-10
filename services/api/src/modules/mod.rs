@@ -1,5 +1,6 @@
 pub mod agent_access;
 pub mod auth;
+pub mod documents;
 pub mod github_integration;
 pub mod knowledge_base;
 pub mod mcp_access;
