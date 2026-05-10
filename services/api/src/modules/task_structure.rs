@@ -7,6 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::db::DatabaseBackend;
 use crate::http::{
     access::{require_project_access, WorkspaceRole},
     actor::ActorContext,
@@ -222,22 +223,28 @@ async fn create_task_group(
     .await?;
 
     let group_id = Uuid::new_v4().to_string();
-    sqlx::query(
+    let insert_sql = if state.db_backend == DatabaseBackend::Postgres {
         "INSERT INTO task_groups
          (id, workspace_id, project_id, kind, title, description_md, status, priority)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-    )
-    .bind(&group_id)
-    .bind(&workspace_id)
-    .bind(&project_id)
-    .bind(&body.kind)
-    .bind(body.title.trim())
-    .bind(&body.description_md)
-    .bind(&body.status)
-    .bind(body.priority)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+         VALUES (CAST($1 AS UUID), CAST($2 AS UUID), CAST($3 AS UUID), $4, $5, $6, $7, $8)"
+    } else {
+        "INSERT INTO task_groups
+         (id, workspace_id, project_id, kind, title, description_md, status, priority)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+    };
+
+    sqlx::query(insert_sql)
+        .bind(&group_id)
+        .bind(&workspace_id)
+        .bind(&project_id)
+        .bind(&body.kind)
+        .bind(body.title.trim())
+        .bind(&body.description_md)
+        .bind(&body.status)
+        .bind(body.priority)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
     let group = fetch_task_group(&state.pool, &project_id, &group_id)
         .await

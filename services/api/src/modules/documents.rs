@@ -7,6 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::db::DatabaseBackend;
 use crate::http::{
     access::{require_project_access, WorkspaceRole},
     actor::ActorContext,
@@ -272,23 +273,38 @@ async fn create_document(
     };
 
     let document_id = Uuid::new_v4().to_string();
-    sqlx::query(
-        "INSERT INTO documents
-         (id, workspace_id, project_id, parent_document_id, slug, title, body_format, body_md, status, version)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)",
-    )
-    .bind(&document_id)
-    .bind(&workspace_id)
-    .bind(&project_id)
-    .bind(&parent_document_id)
-    .bind(&body.slug)
-    .bind(body.title.trim())
-    .bind(&body.body_format)
-    .bind(&body.body_md)
-    .bind(&body.status)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    let insert_document_sql = match state.db_backend {
+        DatabaseBackend::Postgres => {
+            "INSERT INTO documents
+             (id, workspace_id, project_id, parent_document_id, slug, title, body_format, body_md, status, version)
+             VALUES (
+                CAST($1 AS UUID),
+                CAST($2 AS UUID),
+                CAST($3 AS UUID),
+                CAST($4 AS UUID),
+                $5, $6, $7, $8, $9, 1
+             )"
+        }
+        DatabaseBackend::Sqlite => {
+            "INSERT INTO documents
+             (id, workspace_id, project_id, parent_document_id, slug, title, body_format, body_md, status, version)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)"
+        }
+    };
+
+    sqlx::query(insert_document_sql)
+        .bind(&document_id)
+        .bind(&workspace_id)
+        .bind(&project_id)
+        .bind(&parent_document_id)
+        .bind(&body.slug)
+        .bind(body.title.trim())
+        .bind(&body.body_format)
+        .bind(&body.body_md)
+        .bind(&body.status)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
     let document = fetch_document(&state.pool, &project_id, &document_id)
         .await
@@ -427,32 +443,50 @@ async fn update_document(
         None => current.parent_document_id,
     };
 
-    sqlx::query(
-        "UPDATE documents
-         SET slug = COALESCE($1, slug),
-             title = COALESCE($2, title),
-             body_md = COALESCE($3, body_md),
-             body_format = COALESCE($4, body_format),
-             status = COALESCE($5, status),
-             parent_document_id = $6,
-             version = version + 1,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE CAST(id AS TEXT) = $7
-           AND CAST(project_id AS TEXT) = $8
-           AND version = $9",
-    )
-    .bind(body.slug.as_deref())
-    .bind(body.title.as_deref().map(str::trim))
-    .bind(body.body_md.as_deref())
-    .bind(body.body_format.as_deref())
-    .bind(body.status.as_deref())
-    .bind(&parent_document_id)
-    .bind(&document_id)
-    .bind(&project_id)
-    .bind(body.version)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    let update_document_sql = match state.db_backend {
+        DatabaseBackend::Postgres => {
+            "UPDATE documents
+             SET slug = COALESCE($1, slug),
+                 title = COALESCE($2, title),
+                 body_md = COALESCE($3, body_md),
+                 body_format = COALESCE($4, body_format),
+                 status = COALESCE($5, status),
+                 parent_document_id = CAST($6 AS UUID),
+                 version = version + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE CAST(id AS UUID) = CAST($7 AS UUID)
+               AND CAST(project_id AS UUID) = CAST($8 AS UUID)
+               AND version = $9"
+        }
+        DatabaseBackend::Sqlite => {
+            "UPDATE documents
+             SET slug = COALESCE($1, slug),
+                 title = COALESCE($2, title),
+                 body_md = COALESCE($3, body_md),
+                 body_format = COALESCE($4, body_format),
+                 status = COALESCE($5, status),
+                 parent_document_id = $6,
+                 version = version + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE CAST(id AS TEXT) = $7
+               AND CAST(project_id AS TEXT) = $8
+               AND version = $9"
+        }
+    };
+
+    sqlx::query(update_document_sql)
+        .bind(body.slug.as_deref())
+        .bind(body.title.as_deref().map(str::trim))
+        .bind(body.body_md.as_deref())
+        .bind(body.body_format.as_deref())
+        .bind(body.status.as_deref())
+        .bind(&parent_document_id)
+        .bind(&document_id)
+        .bind(&project_id)
+        .bind(body.version)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
     let updated = fetch_document(&state.pool, &project_id, &document_id)
         .await
