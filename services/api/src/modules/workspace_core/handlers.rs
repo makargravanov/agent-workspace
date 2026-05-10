@@ -433,9 +433,13 @@ async fn delete_project(
 
     let project_id = project.id.clone();
 
+    let mut audit_actor = actor;
+    audit_actor.workspace_id = Some(workspace.id.clone());
+    audit_actor.project_id = None;
+
     sqlx::query(
         "UPDATE tasks SET parent_task_id = NULL
-         WHERE CAST(project_id AS TEXT) = $1",
+     WHERE CAST(project_id AS TEXT) = $1",
     )
     .bind(&project_id)
     .execute(&mut *tx)
@@ -489,7 +493,7 @@ async fn delete_project(
         state.db_backend,
         AuditEvent {
             request_id: request_id.0.clone(),
-            actor,
+            actor: audit_actor,
             action: "project.deleted".to_string(),
             resource_kind: "project".to_string(),
             resource_id: project_id,
@@ -578,19 +582,8 @@ async fn delete_workspace(
         ApiError::internal(&request_id.0, "failed to delete workspace")
     })?;
 
-    let _ = record_audit(
-        &state.pool,
-        state.db_backend,
-        AuditEvent {
-            request_id: request_id.0.clone(),
-            actor,
-            action: "workspace.deleted".to_string(),
-            resource_kind: "workspace".to_string(),
-            resource_id: workspace_id,
-            payload: None,
-        },
-    )
-    .await;
+    // Hard-deleting a workspace removes its workspace-scoped audit/activity history.
+    // A workspace.deleted event cannot be stored here after the workspace row is gone.
 
     Ok(StatusCode::NO_CONTENT)
 }
