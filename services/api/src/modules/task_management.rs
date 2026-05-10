@@ -24,7 +24,7 @@ use crate::{
     http::{
         access::{require_project_access, WorkspaceRole},
         actor::ActorContext,
-        audit::{emit_audit, AuditEvent},
+        audit::{record_audit, AuditEvent},
         error::ApiError,
         request_id::RequestId,
         response::{ApiResponse, Created, ListData, ResponseMeta},
@@ -601,14 +601,19 @@ async fn update_task(
         })?
         .ok_or_else(|| ApiError::internal(&request_id, "task not found after update"))?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "task.updated".to_string(),
-        resource_kind: "task".to_string(),
-        resource_id: task_id,
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "task.updated".to_string(),
+            resource_kind: "task".to_string(),
+            resource_id: task_id,
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(ApiResponse {
         data: TaskDetail::from(task),
@@ -728,14 +733,19 @@ async fn create_task(
         .ok_or_else(|| ApiError::internal(&request_id, "task not found after insert"))?;
 
     // ── Audit ─────────────────────────────────────────────────────────────────
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "task.created".to_string(),
-        resource_kind: "task".to_string(),
-        resource_id: new_id,
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "task.created".to_string(),
+            resource_kind: "task".to_string(),
+            resource_id: new_id,
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(Created(ApiResponse {
         data: TaskDetail::from(task),
@@ -816,14 +826,19 @@ async fn update_task_status(
         .ok_or_else(|| ApiError::internal(&request_id, "task not found after update"))?;
 
     // ── Audit ─────────────────────────────────────────────────────────────────
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "task.status_updated".to_string(),
-        resource_kind: "task".to_string(),
-        resource_id: task_id,
-        payload: Some(serde_json::json!({ "new_status": &body.status })),
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "task.status_updated".to_string(),
+            resource_kind: "task".to_string(),
+            resource_id: task_id,
+            payload: Some(serde_json::json!({ "new_status": &body.status })),
+        },
+    )
+    .await;
 
     Ok(ApiResponse {
         data: TaskDetail::from(task),
@@ -904,14 +919,19 @@ async fn delete_task(
         ApiError::internal(&request_id, "failed to delete task")
     })?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "task.deleted".to_string(),
-        resource_kind: "task".to_string(),
-        resource_id: task_id,
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "task.deleted".to_string(),
+            resource_kind: "task".to_string(),
+            resource_id: task_id,
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

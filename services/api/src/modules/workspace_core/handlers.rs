@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::http::{
     access::{require_authenticated_human, require_human_workspace_role, WorkspaceRole},
     actor::ActorContext,
-    audit::{emit_audit, AuditEvent},
+    audit::{record_audit, AuditEvent},
     error::ApiError,
     request_id::RequestId,
     response::{ApiResponse, Created, ListData, ResponseMeta},
@@ -193,14 +193,19 @@ async fn create_workspace(
             ApiError::internal(&request_id.0, "failed to create creator workspace membership")
         })?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.0.clone(),
-        actor,
-        action: "workspace.created".to_string(),
-        resource_kind: "workspace".to_string(),
-        resource_id: workspace.id.clone(),
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.0.clone(),
+            actor,
+            action: "workspace.created".to_string(),
+            resource_kind: "workspace".to_string(),
+            resource_id: workspace.id.clone(),
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(Created(ApiResponse {
         data: workspace,
@@ -331,14 +336,19 @@ async fn create_project(
         }
     })?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.0.clone(),
-        actor,
-        action: "project.created".to_string(),
-        resource_kind: "project".to_string(),
-        resource_id: project.id.clone(),
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.0.clone(),
+            actor,
+            action: "project.created".to_string(),
+            resource_kind: "project".to_string(),
+            resource_id: project.id.clone(),
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(Created(ApiResponse {
         data: project,
@@ -474,14 +484,19 @@ async fn delete_project(
         ApiError::internal(&request_id.0, "failed to delete project")
     })?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.0.clone(),
-        actor,
-        action: "project.deleted".to_string(),
-        resource_kind: "project".to_string(),
-        resource_id: project_id,
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.0.clone(),
+            actor,
+            action: "project.deleted".to_string(),
+            resource_kind: "project".to_string(),
+            resource_id: project_id,
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -563,14 +578,19 @@ async fn delete_workspace(
         ApiError::internal(&request_id.0, "failed to delete workspace")
     })?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.0.clone(),
-        actor,
-        action: "workspace.deleted".to_string(),
-        resource_kind: "workspace".to_string(),
-        resource_id: workspace_id,
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.0.clone(),
+            actor,
+            action: "workspace.deleted".to_string(),
+            resource_kind: "workspace".to_string(),
+            resource_id: workspace_id,
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

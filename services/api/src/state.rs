@@ -1,4 +1,5 @@
 use crate::db::DatabaseBackend;
+use std::path::PathBuf;
 
 /// Shared application state injected into every handler via `axum::extract::State`.
 ///
@@ -8,11 +9,28 @@ use crate::db::DatabaseBackend;
 pub struct AppState {
     pub pool: sqlx::AnyPool,
     pub db_backend: DatabaseBackend,
+    pub asset_storage_dir: PathBuf,
 }
 
 impl AppState {
     pub fn new(pool: sqlx::AnyPool, db_backend: DatabaseBackend) -> Self {
-        Self { pool, db_backend }
+        let asset_storage_dir = std::env::var("ASSET_STORAGE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir().join("agent-workspace-assets"));
+
+        Self::new_with_asset_storage(pool, db_backend, asset_storage_dir)
+    }
+
+    pub fn new_with_asset_storage(
+        pool: sqlx::AnyPool,
+        db_backend: DatabaseBackend,
+        asset_storage_dir: PathBuf,
+    ) -> Self {
+        Self {
+            pool,
+            db_backend,
+            asset_storage_dir,
+        }
     }
 }
 
@@ -31,6 +49,7 @@ impl AppState {
         Self {
             pool,
             db_backend: DatabaseBackend::Sqlite,
+            asset_storage_dir: std::env::temp_dir().join("agent-workspace-assets"),
         }
     }
 }

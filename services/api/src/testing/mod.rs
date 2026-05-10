@@ -262,6 +262,7 @@ mod postgres_smoke {
         body::Body,
         http::{header, Request, StatusCode},
     };
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
     use serde_json::{json, Value};
     use tower::ServiceExt;
     use uuid::Uuid;
@@ -1125,6 +1126,303 @@ mod postgres_smoke {
             .await
             .expect("response");
         assert_eq!(delete_document.status(), StatusCode::NO_CONTENT);
+
+        db.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_assets_agents_integrations_activity_search() {
+        let Some(db) = postgres_test_db().await else {
+            eprintln!("skipping postgres smoke test: TEST_DATABASE_URL is not set");
+            return;
+        };
+
+        let (workspace_id, member_id) = seed_member(
+            &db.pool,
+            "ops-ws",
+            "Ops Workspace",
+            "test:ops-identity",
+            "Test Ops",
+            "owner",
+        )
+        .await;
+
+        let app = build_router(AppState::new(db.pool.clone(), DatabaseBackend::Postgres));
+
+        let create_project = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/ops-ws/projects")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::from(
+                        json!({ "slug": "ops-proj", "name": "Ops Project" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_project.status(), StatusCode::CREATED);
+        let project_body = body_json(create_project.into_body()).await;
+        let project_id = project_body["data"]["id"].as_str().unwrap().to_string();
+
+        let create_agent = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/ops-ws/agents")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::from(
+                        json!({ "key": "ops-bot", "display_name": "Ops Bot" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_agent.status(), StatusCode::CREATED);
+        let agent_body = body_json(create_agent.into_body()).await;
+        let agent_id = agent_body["data"]["id"].as_str().unwrap().to_string();
+
+        let create_credential = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/workspaces/ops-ws/agents/{agent_id}/credentials"
+                    ))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::from(
+                        json!({
+                            "label": "ops shell",
+                            "scope_policy": ["tasks:read", "tasks:write"]
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_credential.status(), StatusCode::CREATED);
+        let credential_body = body_json(create_credential.into_body()).await;
+        assert!(!credential_body["data"]["secret"]
+            .as_str()
+            .unwrap()
+            .is_empty());
+        let credential_id = credential_body["data"]["credential"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let list_agents = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/workspaces/ops-ws/agents")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(list_agents.status(), StatusCode::OK);
+
+        let list_credentials = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/ops-ws/agents/{agent_id}/credentials"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(list_credentials.status(), StatusCode::OK);
+
+        let create_asset = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/ops-ws/projects/ops-proj/assets")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .header("x-project-id", &project_id)
+                    .body(Body::from(
+                        json!({
+                            "file_name": "ops.txt",
+                            "media_type": "text/plain",
+                            "content_base64": STANDARD.encode("ops asset")
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_asset.status(), StatusCode::CREATED);
+        let asset_body = body_json(create_asset.into_body()).await;
+        let asset_id = asset_body["data"]["id"].as_str().unwrap().to_string();
+
+        let create_connection = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/ops-ws/integration-connections")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::from(
+                        json!({
+                            "provider": "github",
+                            "scope_kind": "workspace",
+                            "status": "active",
+                            "config_json": { "owner": "openai" }
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_connection.status(), StatusCode::CREATED);
+        let connection_body = body_json(create_connection.into_body()).await;
+        let connection_id = connection_body["data"]["id"].as_str().unwrap().to_string();
+
+        let activity = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/workspaces/ops-ws/activity")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(activity.status(), StatusCode::OK);
+        let activity_body = body_json(activity.into_body()).await;
+        assert!(activity_body["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["entity_type"].as_str() == Some("agent")));
+
+        let search = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=ops&workspace_slug=ops-ws")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(search.status(), StatusCode::OK);
+        let search_body = body_json(search.into_body()).await;
+        assert!(search_body["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["kind"].as_str() == Some("agent")));
+
+        let delete_asset = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/ops-ws/projects/ops-proj/assets/{asset_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .header("x-project-id", &project_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(delete_asset.status(), StatusCode::NO_CONTENT);
+
+        let delete_connection = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/ops-ws/integration-connections/{connection_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(delete_connection.status(), StatusCode::NO_CONTENT);
+
+        let delete_credential = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/ops-ws/agent-credentials/{credential_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(delete_credential.status(), StatusCode::NO_CONTENT);
+
+        let delete_agent = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/v1/workspaces/ops-ws/agents/{agent_id}"))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(delete_agent.status(), StatusCode::NO_CONTENT);
 
         db.cleanup().await;
     }

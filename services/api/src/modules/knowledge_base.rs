@@ -12,7 +12,7 @@ use crate::db::DatabaseBackend;
 use crate::http::{
     access::{require_project_access, WorkspaceRole},
     actor::{ActorContext, ActorKind},
-    audit::{emit_audit, AuditEvent},
+    audit::{record_audit, AuditEvent},
     error::ApiError,
     pagination::PaginationParams,
     request_id::RequestId,
@@ -326,14 +326,19 @@ async fn create_note(
         .into_response()
         .map_err(|e| ApiError::internal(&request_id, e))?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "note.created".to_string(),
-        resource_kind: "note".to_string(),
-        resource_id: note_id,
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "note.created".to_string(),
+            resource_kind: "note".to_string(),
+            resource_id: note_id,
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(Created(ApiResponse {
         data: note,
@@ -435,14 +440,19 @@ async fn delete_note(
         return Err(ApiError::not_found(&request_id, "note not found"));
     }
 
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "note.deleted".to_string(),
-        resource_kind: "note".to_string(),
-        resource_id: note_id,
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "note.deleted".to_string(),
+            resource_kind: "note".to_string(),
+            resource_id: note_id,
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -552,14 +562,19 @@ async fn update_note(
         .into_response()
         .map_err(|e| ApiError::internal(&request_id, e))?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "note.updated".to_string(),
-        resource_kind: "note".to_string(),
-        resource_id: note_id,
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "note.updated".to_string(),
+            resource_kind: "note".to_string(),
+            resource_id: note_id,
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(ApiResponse {
         data: note,

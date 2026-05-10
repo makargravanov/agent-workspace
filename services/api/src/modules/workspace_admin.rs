@@ -1,7 +1,7 @@
 use crate::http::{
     access::{require_human_workspace_role, WorkspaceRole},
     actor::ActorContext,
-    audit::{emit_audit, AuditEvent},
+    audit::{record_audit, AuditEvent},
     error::ApiError,
     request_id::RequestId,
     response::{ApiResponse, ResponseMeta},
@@ -73,14 +73,19 @@ async fn update_workspace(
         }
     })?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "workspace.updated".to_string(),
-        resource_kind: "workspace".to_string(),
-        resource_id: updated.id.clone(),
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "workspace.updated".to_string(),
+            resource_kind: "workspace".to_string(),
+            resource_id: updated.id.clone(),
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(ApiResponse {
         data: updated,
@@ -167,14 +172,19 @@ async fn update_project(
         }
     })?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "project.updated".to_string(),
-        resource_kind: "project".to_string(),
-        resource_id: updated.id.clone(),
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "project.updated".to_string(),
+            resource_kind: "project".to_string(),
+            resource_id: updated.id.clone(),
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(ApiResponse {
         data: updated,

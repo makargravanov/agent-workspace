@@ -11,7 +11,7 @@ use crate::db::DatabaseBackend;
 use crate::http::{
     access::{require_project_access, WorkspaceRole},
     actor::ActorContext,
-    audit::{emit_audit, AuditEvent},
+    audit::{record_audit, AuditEvent},
     error::ApiError,
     request_id::RequestId,
     response::{ApiResponse, Created, ListData, ResponseMeta},
@@ -251,14 +251,19 @@ async fn create_task_group(
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
         .ok_or_else(|| ApiError::internal(&request_id, "task group not found after insert"))?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "task_group.created".to_string(),
-        resource_kind: "task_group".to_string(),
-        resource_id: group_id,
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "task_group.created".to_string(),
+            resource_kind: "task_group".to_string(),
+            resource_id: group_id,
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(Created(ApiResponse {
         data: group,
@@ -376,14 +381,19 @@ async fn update_task_group(
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
         .ok_or_else(|| ApiError::internal(&request_id, "task group not found after update"))?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "task_group.updated".to_string(),
-        resource_kind: "task_group".to_string(),
-        resource_id: group_id,
-        payload: Some(serde_json::json!({ "previous_title": task_group.title })),
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "task_group.updated".to_string(),
+            resource_kind: "task_group".to_string(),
+            resource_id: group_id,
+            payload: Some(serde_json::json!({ "previous_title": task_group.title })),
+        },
+    )
+    .await;
 
     Ok(ApiResponse {
         data: updated,
@@ -452,14 +462,19 @@ async fn delete_task_group(
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
-    emit_audit(AuditEvent {
-        request_id: request_id.clone(),
-        actor,
-        action: "task_group.deleted".to_string(),
-        resource_kind: "task_group".to_string(),
-        resource_id: group_id,
-        payload: None,
-    });
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "task_group.deleted".to_string(),
+            resource_kind: "task_group".to_string(),
+            resource_id: group_id,
+            payload: None,
+        },
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

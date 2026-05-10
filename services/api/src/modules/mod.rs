@@ -1,7 +1,12 @@
+pub mod activity;
 pub mod agent_access;
+pub mod agent_credentials;
+pub mod agents;
+pub mod assets;
 pub mod auth;
 pub mod documents;
 pub mod github_integration;
+pub mod integration_connections;
 pub mod knowledge_base;
 pub mod mcp_access;
 pub mod operator;
