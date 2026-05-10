@@ -1187,8 +1187,13 @@ mod postgres_smoke {
             )
             .await
             .expect("response");
-        assert_eq!(create_agent.status(), StatusCode::CREATED);
+        let create_agent_status = create_agent.status();
         let agent_body = body_json(create_agent.into_body()).await;
+        assert_eq!(
+            create_agent_status,
+            StatusCode::CREATED,
+            "create agent failed with body: {agent_body}"
+        );
         let agent_id = agent_body["data"]["id"].as_str().unwrap().to_string();
 
         let create_credential = app
