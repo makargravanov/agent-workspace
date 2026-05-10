@@ -157,7 +157,7 @@ pub async fn record_audit(
                 $5,
                 CAST($6 AS UUID),
                 $7,
-                $8
+                CAST($8 AS JSONB)
              )"
         }
         DatabaseBackend::Sqlite => {
