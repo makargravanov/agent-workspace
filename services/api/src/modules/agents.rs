@@ -208,30 +208,41 @@ async fn create_agent(
         DatabaseBackend::Postgres => {
             "INSERT INTO agents
              (id, workspace_id, created_by_member_id, key, display_name, status)
-             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), CAST($3 AS UUID), $4, $5, $6)"
+             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), CAST($3 AS UUID), $4, $5, $6)
+             RETURNING CAST(id AS TEXT) AS id,
+                       CAST(workspace_id AS TEXT) AS workspace_id,
+                       CAST(created_by_member_id AS TEXT) AS created_by_member_id,
+                       key,
+                       display_name,
+                       status,
+                       CAST(created_at AS TEXT) AS created_at,
+                       CAST(updated_at AS TEXT) AS updated_at"
         }
         DatabaseBackend::Sqlite => {
             "INSERT INTO agents
              (id, workspace_id, created_by_member_id, key, display_name, status)
-             VALUES ($1, $2, $3, $4, $5, $6)"
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING id,
+                       workspace_id,
+                       created_by_member_id,
+                       key,
+                       display_name,
+                       status,
+                       created_at,
+                       updated_at"
         }
     };
 
-    sqlx::query(insert_sql)
+    let agent = sqlx::query_as::<_, AgentResponse>(insert_sql)
         .bind(&agent_id)
         .bind(&workspace_id)
         .bind(&actor.actor_id)
         .bind(&body.key)
         .bind(body.display_name.trim())
         .bind(&body.status)
-        .execute(&state.pool)
+        .fetch_one(&state.pool)
         .await
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
-
-    let agent = fetch_agent(&state.pool, &workspace_id, &agent_id)
-        .await
-        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
-        .ok_or_else(|| ApiError::internal(&request_id, "agent not found after insert"))?;
 
     let _ = record_audit(
         &state.pool,
