@@ -520,6 +520,51 @@ mod postgres_smoke {
             .expect("task id")
             .to_string();
 
+        let child_task = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/pg-child/projects/pg-proj/tasks")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({
+                            "title": "Postgres child task",
+                            "description_md": "Created in postgres smoke test",
+                            "priority": "normal",
+                            "parent_task_id": grouped_task_id
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(child_task.status(), StatusCode::CREATED);
+        let child_task_body = body_json(child_task.into_body()).await;
+        let child_task_id = child_task_body["data"]["id"]
+            .as_str()
+            .expect("task id")
+            .to_string();
+
+        sqlx::query(
+            "INSERT INTO task_dependencies
+             (id, workspace_id, project_id, predecessor_task_id, successor_task_id, dependency_type, is_hard_block)
+             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), CAST($3 AS UUID), CAST($4 AS UUID), CAST($5 AS UUID), $6, $7)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&child_workspace_id)
+        .bind(&project_id)
+        .bind(&grouped_task_id)
+        .bind(&child_task_id)
+        .bind("blocks")
+        .bind(true)
+        .execute(&db.pool)
+        .await
+        .expect("insert postgres dependency");
+
         let list_tasks = app
             .clone()
             .oneshot(
@@ -589,8 +634,14 @@ mod postgres_smoke {
         .await
         .expect("response");
         assert_eq!(create_note.status(), StatusCode::CREATED);
+        let create_note_body = body_json(create_note.into_body()).await;
+        let note_id = create_note_body["data"]["id"]
+            .as_str()
+            .expect("note id")
+            .to_string();
 
         let list_notes = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/workspaces/pg-child/projects/pg-proj/notes")
@@ -604,6 +655,160 @@ mod postgres_smoke {
         assert_eq!(list_notes.status(), StatusCode::OK);
         let list_notes_body = body_json(list_notes.into_body()).await;
         assert_eq!(list_notes_body["data"]["items"].as_array().unwrap().len(), 1);
+
+        let delete_note = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/pg-child/projects/pg-proj/notes/{note_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(delete_note.status(), StatusCode::NO_CONTENT);
+
+        let get_deleted_note = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/api/v1/workspaces/pg-child/projects/pg-proj/notes/{note_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(get_deleted_note.status(), StatusCode::NOT_FOUND);
+
+        let list_notes_after_delete = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/workspaces/pg-child/projects/pg-proj/notes")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(list_notes_after_delete.status(), StatusCode::OK);
+        let list_notes_after_delete_body = body_json(list_notes_after_delete.into_body()).await;
+        assert_eq!(
+            list_notes_after_delete_body["data"]["items"].as_array().unwrap().len(),
+            0
+        );
+
+        let delete_task = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/pg-child/projects/pg-proj/tasks/{grouped_task_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(delete_task.status(), StatusCode::NO_CONTENT);
+
+        let (deleted_task_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM tasks WHERE CAST(id AS TEXT) = $1",
+        )
+        .bind(&grouped_task_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("fetch deleted task count");
+        assert_eq!(deleted_task_count, 0);
+
+        let (child_parent_task_id,): (Option<String>,) = sqlx::query_as(
+            "SELECT CAST(parent_task_id AS TEXT) FROM tasks WHERE CAST(id AS TEXT) = $1",
+        )
+        .bind(&child_task_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("fetch child parent task id");
+        assert!(child_parent_task_id.is_none());
+
+        let (dependency_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM task_dependencies WHERE CAST(project_id AS TEXT) = $1",
+        )
+        .bind(&project_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("fetch dependency count");
+        assert_eq!(dependency_count, 0);
+
+        let delete_project = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/workspaces/pg-child/projects/pg-proj")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(delete_project.status(), StatusCode::NO_CONTENT);
+
+        let (project_remaining,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM projects WHERE CAST(id AS TEXT) = $1",
+        )
+        .bind(&project_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("fetch project count");
+        assert_eq!(project_remaining, 0);
+
+        let (workspace_remaining,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM workspaces WHERE CAST(id AS TEXT) = $1",
+        )
+        .bind(&child_workspace_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("fetch workspace count");
+        assert_eq!(workspace_remaining, 1);
+
+        let delete_workspace = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/workspaces/pg-child")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(delete_workspace.status(), StatusCode::NO_CONTENT);
+
+        let (workspace_remaining,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM workspaces WHERE CAST(id AS TEXT) = $1",
+        )
+        .bind(&child_workspace_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("fetch workspace count after delete");
+        assert_eq!(workspace_remaining, 0);
 
         db.cleanup().await;
     }
