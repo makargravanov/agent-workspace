@@ -1,3 +1,4 @@
+import { Plus } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import type { NoteKind } from '../../api/types';
@@ -37,12 +38,11 @@ export function NotesPage() {
   }
 
   return (
-    <section className="pageStack">
-      <section className="panel">
-        <div className="panelHeader">
-          <div>
-            <h2>Создать заметку</h2>
-          </div>
+    <section className="notesPage">
+      <section className="composePanel">
+        <div className="compactTitle">
+          <Plus size={16} />
+          <h2>Создать заметку</h2>
         </div>
 
         <form className="formGrid formGridWide" onSubmit={handleSubmit}>
@@ -80,7 +80,7 @@ export function NotesPage() {
           <div className="formActions">
             <button
               type="submit"
-              className="primaryButton"
+              className="primaryButton compactButton"
               disabled={createNoteMutation.isPending}
             >
               {createNoteMutation.isPending ? 'Сохранение...' : 'Создать'}
@@ -93,31 +93,23 @@ export function NotesPage() {
         ) : null}
       </section>
 
-      <section className="panel">
-        <div className="panelHeader">
-          <div>
-            <h2>Список заметок</h2>
-          </div>
-        </div>
-
-        <div className="entityList">
+      <section className="workPanel">
+        <div className="compactList">
           {notes.map((note) => (
-            <article key={note.id} className="entityCard">
-              <div className="summaryRow">
+            <article key={note.id} className="noteRow">
+              <div className="noteRowHeader">
                 <strong>{note.title ?? 'Без названия'}</strong>
-                <span className="statusBadge">{noteKindLabel(note.kind)}</span>
+                <span className="statusPill">{noteKindLabel(note.kind)}</span>
               </div>
               <p>{note.body_md}</p>
-              <div className="summaryRow">
+              <div className="noteMeta">
                 <span className="mutedText">{note.author_type}</span>
                 <span className="mutedText">{formatDateTime(note.updated_at)}</span>
               </div>
             </article>
           ))}
           {notes.length === 0 ? (
-            <div className="emptyPanel">
-              <h3>Заметок пока нет</h3>
-            </div>
+            <div className="emptyPanel">Заметок нет</div>
           ) : null}
         </div>
       </section>

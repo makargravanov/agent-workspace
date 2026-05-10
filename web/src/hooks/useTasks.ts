@@ -12,9 +12,11 @@ import {
   type ListTasksParams,
 } from '../api/tasks';
 import type {
+  ApiListData,
   CreateTaskGroupPayload,
   CreateTaskPayload,
   PatchTaskGroupPayload,
+  TaskDetail,
   UpdateTaskStatusPayload,
 } from '../api/types';
 
@@ -103,9 +105,107 @@ export function useUpdateTaskStatus(workspaceSlug: string, projectSlug: string, 
   return useMutation({
     mutationFn: (payload: UpdateTaskStatusPayload) =>
       updateTaskStatus(workspaceSlug, projectSlug, taskId, payload),
+    onMutate: async (payload) => {
+      const tasksKey = queryKeys.tasks(workspaceSlug, projectSlug);
+      const taskKey = queryKeys.task(workspaceSlug, projectSlug, taskId);
+
+      await queryClient.cancelQueries({ queryKey: tasksKey });
+      await queryClient.cancelQueries({ queryKey: taskKey });
+
+      const previousTasks = queryClient.getQueryData<ApiListData<TaskDetail>>(tasksKey);
+      const previousTask = queryClient.getQueryData<TaskDetail>(taskKey);
+
+      queryClient.setQueryData<ApiListData<TaskDetail>>(tasksKey, (current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          items: current.items.map((task) =>
+            task.id === taskId
+              ? { ...task, status: payload.status, updated_at: new Date().toISOString() }
+              : task,
+          ),
+        };
+      });
+
+      queryClient.setQueryData<TaskDetail>(taskKey, (current) =>
+        current ? { ...current, status: payload.status, updated_at: new Date().toISOString() } : current,
+      );
+
+      return { previousTasks, previousTask };
+    },
+    onError: (_error, _payload, context) => {
+      if (context?.previousTasks) {
+        queryClient.setQueryData(queryKeys.tasks(workspaceSlug, projectSlug), context.previousTasks);
+      }
+      if (context?.previousTask) {
+        queryClient.setQueryData(queryKeys.task(workspaceSlug, projectSlug, taskId), context.previousTask);
+      }
+    },
     onSuccess: (updated) => {
       queryClient.setQueryData(
         queryKeys.task(workspaceSlug, projectSlug, taskId),
+        updated,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks(workspaceSlug, projectSlug),
+      });
+    },
+  });
+}
+
+export function useMoveTaskStatus(workspaceSlug: string, projectSlug: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, status }: { taskId: string; status: UpdateTaskStatusPayload['status'] }) =>
+      updateTaskStatus(workspaceSlug, projectSlug, taskId, { status }),
+    onMutate: async ({ taskId, status }) => {
+      const tasksKey = queryKeys.tasks(workspaceSlug, projectSlug);
+      const taskKey = queryKeys.task(workspaceSlug, projectSlug, taskId);
+
+      await queryClient.cancelQueries({ queryKey: tasksKey });
+      await queryClient.cancelQueries({ queryKey: taskKey });
+
+      const previousTasks = queryClient.getQueryData<ApiListData<TaskDetail>>(tasksKey);
+      const previousTask = queryClient.getQueryData<TaskDetail>(taskKey);
+
+      queryClient.setQueryData<ApiListData<TaskDetail>>(tasksKey, (current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          items: current.items.map((task) =>
+            task.id === taskId
+              ? { ...task, status, updated_at: new Date().toISOString() }
+              : task,
+          ),
+        };
+      });
+
+      queryClient.setQueryData<TaskDetail>(taskKey, (current) =>
+        current ? { ...current, status, updated_at: new Date().toISOString() } : current,
+      );
+
+      return { previousTasks, previousTask, taskId };
+    },
+    onError: (_error, _payload, context) => {
+      if (context?.previousTasks) {
+        queryClient.setQueryData(queryKeys.tasks(workspaceSlug, projectSlug), context.previousTasks);
+      }
+      if (context?.previousTask) {
+        queryClient.setQueryData(
+          queryKeys.task(workspaceSlug, projectSlug, context.taskId),
+          context.previousTask,
+        );
+      }
+    },
+    onSuccess: (updated, variables) => {
+      queryClient.setQueryData(
+        queryKeys.task(workspaceSlug, projectSlug, variables.taskId),
         updated,
       );
       void queryClient.invalidateQueries({

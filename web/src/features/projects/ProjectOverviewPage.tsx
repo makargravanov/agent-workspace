@@ -11,10 +11,11 @@ export function ProjectOverviewPage() {
   const notes = notesQuery.data?.items ?? [];
   const activeTasks = tasks.filter((task) => task.status === 'todo' || task.status === 'in_progress');
   const completedTasks = tasks.filter((task) => task.status === 'done');
+  const cancelledTasks = tasks.filter((task) => task.status === 'cancelled');
 
   return (
-    <section className="pageStack">
-      <div className="statsGrid">
+    <section className="overviewPage">
+      <div className="metricGrid">
         <article className="statCard">
           <span className="statValue">{tasks.length}</span>
           <span className="statLabel">Всего задач</span>
@@ -28,17 +29,19 @@ export function ProjectOverviewPage() {
           <span className="statLabel">Готово</span>
         </article>
         <article className="statCard">
+          <span className="statValue">{cancelledTasks.length}</span>
+          <span className="statLabel">Отменено</span>
+        </article>
+        <article className="statCard">
           <span className="statValue">{notes.length}</span>
           <span className="statLabel">Заметок</span>
         </article>
       </div>
 
       <div className="overviewGrid">
-        <section className="panel">
+        <section className="workPanel">
           <div className="panelHeader">
-            <div>
-              <h2>Последние задачи</h2>
-            </div>
+            <h2>Последние задачи</h2>
             <Link
               className="secondaryButton"
               to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/tasks`}
@@ -47,29 +50,25 @@ export function ProjectOverviewPage() {
             </Link>
           </div>
 
-          <div className="entityList">
+          <div className="compactList">
             {tasks.slice(0, 5).map((task) => (
-              <article key={task.id} className="entityCard">
-                <div className="summaryRow">
+              <article key={task.id} className="compactRow">
+                <div>
                   <strong>{task.title}</strong>
-                  <span className="statusBadge">{statusLabel(task.status)}</span>
+                  {task.description_md ? <span>{task.description_md}</span> : null}
                 </div>
-                {task.description_md ? <p>{task.description_md}</p> : null}
+                <span className={`statusPill status-${task.status}`}>{statusLabel(task.status)}</span>
               </article>
             ))}
             {tasks.length === 0 ? (
-              <div className="emptyPanel">
-                <h3>Задач пока нет</h3>
-              </div>
+              <div className="emptyPanel">Задач нет</div>
             ) : null}
           </div>
         </section>
 
-        <section className="panel">
+        <section className="workPanel">
           <div className="panelHeader">
-            <div>
-              <h2>Последние заметки</h2>
-            </div>
+            <h2>Последние заметки</h2>
             <Link
               className="secondaryButton"
               to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/notes`}
@@ -78,20 +77,18 @@ export function ProjectOverviewPage() {
             </Link>
           </div>
 
-          <div className="entityList">
+          <div className="compactList">
             {notes.slice(0, 5).map((note) => (
-              <article key={note.id} className="entityCard">
-                <div className="summaryRow">
+              <article key={note.id} className="compactRow">
+                <div>
                   <strong>{note.title ?? 'Без названия'}</strong>
-                  <span className="statusBadge">{noteKindLabel(note.kind)}</span>
+                  <span>{note.body_md}</span>
                 </div>
-                <p>{note.body_md}</p>
+                <span className="statusPill">{noteKindLabel(note.kind)}</span>
               </article>
             ))}
             {notes.length === 0 ? (
-              <div className="emptyPanel">
-                <h3>Заметок пока нет</h3>
-              </div>
+              <div className="emptyPanel">Заметок нет</div>
             ) : null}
           </div>
         </section>

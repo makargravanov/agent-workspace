@@ -1,4 +1,6 @@
+import { FolderKanban, Plus, Search } from 'lucide-react';
 import type { FormEvent } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useCreateProject, useProjects, useWorkspace } from '../../hooks/useWorkspaces';
 import { useSession } from '../../hooks/useSession';
@@ -17,6 +19,7 @@ export function WorkspacePage() {
   const actorRole = sessionQuery.data?.actor?.role;
   const canCreateProject = actorRole === 'owner';
   const { value: name, setValue: setName, slug, setSlug } = useAutoSlug();
+  const [search, setSearch] = useState('');
 
   if (workspaceQuery.isLoading || projectsQuery.isLoading) {
     return <FullPageMessage title="Загрузка рабочего пространства" embedded />;
@@ -33,6 +36,17 @@ export function WorkspacePage() {
   }
 
   const projects = projectsQuery.data?.items ?? [];
+  const filteredProjects = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) {
+      return projects;
+    }
+    return projects.filter(
+      (project) =>
+        project.name.toLowerCase().includes(query) ||
+        project.slug.toLowerCase().includes(query),
+    );
+  }, [projects, search]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -49,51 +63,48 @@ export function WorkspacePage() {
   }
 
   return (
-    <section className="pageStack">
-      <div className="pageHeader">
-        <div>
-          <p className="eyebrow">Рабочее пространство</p>
-          <h1>{workspaceQuery.data.name}</h1>
-          <p className="mutedText">{workspaceQuery.data.slug}</p>
+    <section className="directoryPage">
+      <div className="directoryHeader">
+        <div className="searchField">
+          <Search size={16} />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Поиск проектов"
+          />
         </div>
       </div>
 
-      <section className="panel">
-        <div className="panelHeader">
-          <div>
-            <h2>Проекты</h2>
-          </div>
-        </div>
-
-        {projects.length > 0 ? (
-          <div className="cardGrid">
-            {projects.map((project) => (
+      <section className="directoryPanel">
+        {filteredProjects.length > 0 ? (
+          <div className="directoryList">
+            {filteredProjects.map((project) => (
               <Link
                 key={project.id}
-                className="summaryCard summaryCardLink"
-                to={`/workspaces/${workspaceSlug}/projects/${project.slug}`}
+                className="directoryRow"
+                to={`/workspaces/${workspaceSlug}/projects/${project.slug}/tasks`}
               >
-                <div className="summaryRow">
+                <FolderKanban size={18} />
+                <div>
                   <strong>{project.name}</strong>
-                  <span className="statusBadge">{projectStatusLabel(project.status)}</span>
+                  <span>{project.slug}</span>
                 </div>
-                <span className="mutedText">{project.slug}</span>
+                <span className={`statusPill status-${project.status}`}>
+                  {projectStatusLabel(project.status)}
+                </span>
               </Link>
             ))}
           </div>
         ) : (
-          <div className="emptyPanel">
-            <h3>Проектов пока нет</h3>
-          </div>
+          <div className="emptyPanel">Проектов нет</div>
         )}
       </section>
 
       {canCreateProject ? (
-        <section className="panel">
-          <div className="panelHeader">
-            <div>
-              <h2>Создать проект</h2>
-            </div>
+        <section className="composePanel">
+          <div className="compactTitle">
+            <Plus size={16} />
+            <h2>Создать проект</h2>
           </div>
 
           <form className="formGrid" onSubmit={handleSubmit}>
@@ -118,7 +129,7 @@ export function WorkspacePage() {
             <div className="formActions">
               <button
                 type="submit"
-                className="primaryButton"
+                className="primaryButton compactButton"
                 disabled={createProjectMutation.isPending}
               >
                 {createProjectMutation.isPending ? 'Создание...' : 'Создать'}

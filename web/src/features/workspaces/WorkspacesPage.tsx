@@ -1,4 +1,6 @@
+import { Plus, Search } from 'lucide-react';
 import type { FormEvent } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCreateWorkspace, useWorkspaces } from '../../hooks/useWorkspaces';
 import { getErrorMessage } from '../../shared/lib/errors';
@@ -11,6 +13,7 @@ export function WorkspacesPage() {
   const workspacesQuery = useWorkspaces();
   const createWorkspaceMutation = useCreateWorkspace();
   const { value: name, setValue: setName, slug, setSlug } = useAutoSlug();
+  const [search, setSearch] = useState('');
 
   if (workspacesQuery.isLoading) {
     return <FullPageMessage title="Загрузка рабочих пространств" embedded />;
@@ -27,6 +30,17 @@ export function WorkspacesPage() {
   }
 
   const workspaces = workspacesQuery.data?.items ?? [];
+  const filteredWorkspaces = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) {
+      return workspaces;
+    }
+    return workspaces.filter(
+      (workspace) =>
+        workspace.name.toLowerCase().includes(query) ||
+        workspace.slug.toLowerCase().includes(query),
+    );
+  }, [search, workspaces]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -43,46 +57,44 @@ export function WorkspacesPage() {
   }
 
   return (
-    <section className="pageStack">
-      <div className="pageHeader">
-        <div>
-          <p className="eyebrow">Рабочие пространства</p>
-          <h1>Доступные рабочие пространства</h1>
+    <section className="directoryPage">
+      <div className="directoryHeader">
+        <div className="searchField">
+          <Search size={16} />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Поиск workspace"
+          />
         </div>
       </div>
 
-      <section className="panel">
-        <div className="panelHeader">
-          <div>
-            <h2>Список</h2>
-          </div>
-        </div>
-
-        {workspaces.length > 0 ? (
-          <div className="cardGrid">
-            {workspaces.map((workspace) => (
+      <section className="directoryPanel">
+        {filteredWorkspaces.length > 0 ? (
+          <div className="directoryList">
+            {filteredWorkspaces.map((workspace) => (
               <Link
                 key={workspace.id}
-                className="summaryCard summaryCardLink"
+                className="directoryRow"
                 to={`/workspaces/${workspace.slug}`}
               >
-                <strong>{workspace.name}</strong>
-                <span className="mutedText">{workspace.slug}</span>
+                <div>
+                  <strong>{workspace.name}</strong>
+                  <span>{workspace.slug}</span>
+                </div>
+                <span>Открыть</span>
               </Link>
             ))}
           </div>
         ) : (
-          <div className="emptyPanel">
-            <h3>Рабочих пространств пока нет</h3>
-          </div>
+          <div className="emptyPanel">Рабочих пространств нет</div>
         )}
       </section>
 
-      <section className="panel">
-        <div className="panelHeader">
-          <div>
-            <h2>Создать рабочее пространство</h2>
-          </div>
+      <section className="composePanel">
+        <div className="compactTitle">
+          <Plus size={16} />
+          <h2>Создать рабочее пространство</h2>
         </div>
 
         <form className="formGrid" onSubmit={handleSubmit}>
@@ -107,7 +119,7 @@ export function WorkspacesPage() {
           <div className="formActions">
             <button
               type="submit"
-              className="primaryButton"
+              className="primaryButton compactButton"
               disabled={createWorkspaceMutation.isPending}
             >
               {createWorkspaceMutation.isPending ? 'Создание...' : 'Создать'}
