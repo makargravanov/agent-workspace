@@ -274,7 +274,7 @@ async fn create_connection(
                 CAST($1 AS UUID),
                 CAST($2 AS UUID),
                 CAST($3 AS UUID),
-                $4, $5, $6, $7, $8
+                $4, $5, $6, CAST($7 AS JSONB), $8
              )"
         }
         DatabaseBackend::Sqlite => {
@@ -405,17 +405,30 @@ async fn update_connection(
         }
     }
 
-    sqlx::query(
-        "UPDATE integration_connections
-         SET provider = COALESCE($1, provider),
-             scope_kind = COALESCE($2, scope_kind),
-             project_id = COALESCE($3, project_id),
-             status = COALESCE($4, status),
-             config_json = COALESCE($5, config_json),
-             secret_ciphertext = COALESCE($6, secret_ciphertext),
-             updated_at = CURRENT_TIMESTAMP
-         WHERE CAST(id AS TEXT) = $7 AND CAST(workspace_id AS TEXT) = $8",
-    )
+    sqlx::query(match state.db_backend {
+        DatabaseBackend::Postgres => {
+            "UPDATE integration_connections
+             SET provider = COALESCE($1, provider),
+                 scope_kind = COALESCE($2, scope_kind),
+                 project_id = COALESCE(CAST($3 AS UUID), project_id),
+                 status = COALESCE($4, status),
+                 config_json = COALESCE(CAST($5 AS JSONB), config_json),
+                 secret_ciphertext = COALESCE($6, secret_ciphertext),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE CAST(id AS TEXT) = $7 AND CAST(workspace_id AS TEXT) = $8"
+        }
+        DatabaseBackend::Sqlite => {
+            "UPDATE integration_connections
+             SET provider = COALESCE($1, provider),
+                 scope_kind = COALESCE($2, scope_kind),
+                 project_id = COALESCE($3, project_id),
+                 status = COALESCE($4, status),
+                 config_json = COALESCE($5, config_json),
+                 secret_ciphertext = COALESCE($6, secret_ciphertext),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE CAST(id AS TEXT) = $7 AND CAST(workspace_id AS TEXT) = $8"
+        }
+    })
     .bind(body.provider.as_deref())
     .bind(body.scope_kind.as_deref())
     .bind(body.project_id.as_ref().and_then(|value| value.as_deref()))

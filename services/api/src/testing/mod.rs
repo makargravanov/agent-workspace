@@ -1219,8 +1219,13 @@ mod postgres_smoke {
             )
             .await
             .expect("response");
-        assert_eq!(create_credential.status(), StatusCode::CREATED);
+        let create_credential_status = create_credential.status();
         let credential_body = body_json(create_credential.into_body()).await;
+        assert_eq!(
+            create_credential_status,
+            StatusCode::CREATED,
+            "create credential failed with body: {credential_body}"
+        );
         assert!(!credential_body["data"]["secret"]
             .as_str()
             .unwrap()

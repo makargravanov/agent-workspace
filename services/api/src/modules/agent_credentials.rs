@@ -288,7 +288,7 @@ async fn create_credential(
                 CAST($3 AS UUID),
                 CAST($4 AS UUID),
                 CAST($5 AS UUID),
-                $6, $7, $8, $9, 'active', CAST($10 AS TIMESTAMPTZ)
+                $6, $7, $8, CAST($9 AS JSONB), 'active', CAST($10 AS TIMESTAMPTZ)
              )"
         }
         DatabaseBackend::Sqlite => {
@@ -419,7 +419,7 @@ async fn update_credential(
             "UPDATE agent_credentials
              SET label = COALESCE($1, label),
                  project_id = COALESCE(CAST($2 AS UUID), project_id),
-                 scope_policy = COALESCE($3, scope_policy),
+                 scope_policy = COALESCE(CAST($3 AS JSONB), scope_policy),
                  status = COALESCE($4, status),
                  expires_at = COALESCE(CAST($5 AS TIMESTAMPTZ), expires_at),
                  revoked_at = CASE WHEN $4 = 'revoked' THEN CURRENT_TIMESTAMP ELSE revoked_at END
