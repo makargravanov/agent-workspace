@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../api/query-keys';
 import {
+  deleteProject,
+  deleteWorkspace,
   createProject,
   createWorkspace,
   getProject,
@@ -8,7 +10,14 @@ import {
   listProjects,
   listWorkspaces,
 } from '../api/workspaces';
-import type { CreateProjectPayload, CreateWorkspacePayload, PaginationParams } from '../api/types';
+import type {
+  ApiListData,
+  CreateProjectPayload,
+  CreateWorkspacePayload,
+  PaginationParams,
+  ProjectSummary,
+  WorkspaceSummary,
+} from '../api/types';
 
 export function useWorkspaces(pagination?: PaginationParams, enabled = true) {
   return useQuery({
@@ -53,6 +62,42 @@ export function useCreateWorkspace() {
   });
 }
 
+export function useDeleteWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (workspaceSlug: string) => deleteWorkspace(workspaceSlug),
+    onMutate: async (workspaceSlug) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.workspaces() });
+
+      const previousWorkspaces = queryClient.getQueryData<ApiListData<WorkspaceSummary>>(
+        queryKeys.workspaces(),
+      );
+
+      queryClient.setQueryData<ApiListData<WorkspaceSummary>>(queryKeys.workspaces(), (current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.filter((workspace) => workspace.slug !== workspaceSlug),
+            }
+          : current,
+      );
+
+      return { previousWorkspaces };
+    },
+    onError: (_error, _workspaceSlug, context) => {
+      if (context?.previousWorkspaces) {
+        queryClient.setQueryData(queryKeys.workspaces(), context.previousWorkspaces);
+      }
+    },
+    onSuccess: () => {
+      void queryClient.removeQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) && query.queryKey[0] === 'workspaces',
+      });
+    },
+  });
+}
+
 export function useCreateProject(workspaceSlug: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -61,6 +106,44 @@ export function useCreateProject(workspaceSlug: string) {
       queryClient.setQueryData(queryKeys.project(workspaceSlug, created.slug), created);
       void queryClient.invalidateQueries({
         queryKey: queryKeys.projects(workspaceSlug),
+      });
+    },
+  });
+}
+
+export function useDeleteProject(workspaceSlug: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (projectSlug: string) => deleteProject(workspaceSlug, projectSlug),
+    onMutate: async (projectSlug) => {
+      const projectsKey = queryKeys.projects(workspaceSlug);
+
+      await queryClient.cancelQueries({ queryKey: projectsKey });
+
+      const previousProjects = queryClient.getQueryData<ApiListData<ProjectSummary>>(projectsKey);
+
+      queryClient.setQueryData<ApiListData<ProjectSummary>>(projectsKey, (current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.filter((project) => project.slug !== projectSlug),
+            }
+          : current,
+      );
+
+      return { previousProjects };
+    },
+    onError: (_error, _projectSlug, context) => {
+      if (context?.previousProjects) {
+        queryClient.setQueryData(queryKeys.projects(workspaceSlug), context.previousProjects);
+      }
+    },
+    onSuccess: () => {
+      void queryClient.removeQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) &&
+          query.queryKey[0] === 'workspaces' &&
+          query.queryKey[1] === workspaceSlug,
       });
     },
   });

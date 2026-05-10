@@ -1,4 +1,4 @@
-import { apiGet, apiPost, type RequestOptions } from './client';
+import { apiDelete, apiGet, apiPost, type RequestOptions } from './client';
 import type {
   ApiListResponse,
   ApiResponse,
@@ -50,4 +50,13 @@ export async function createNote(
     opts,
   );
   return resp.data;
+}
+
+export async function deleteNote(
+  workspaceSlug: string,
+  projectSlug: string,
+  noteId: string,
+  opts?: RequestOptions,
+): Promise<void> {
+  await apiDelete(`${notesBase(workspaceSlug, projectSlug)}/${noteId}`, opts);
 }

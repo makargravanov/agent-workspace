@@ -1,8 +1,8 @@
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import type { NoteKind } from '../../api/types';
-import { useCreateNote, useNotes } from '../../hooks/useNotes';
+import { useCreateNote, useDeleteNote, useNotes } from '../../hooks/useNotes';
 import { getErrorMessage } from '../../shared/lib/errors';
 import { formatDateTime, noteKindLabel } from '../../shared/lib/text';
 import { useFieldState } from '../../shared/ui/useFieldState';
@@ -13,6 +13,7 @@ export function NotesPage() {
   const { workspaceSlug = '', projectSlug = '' } = useParams();
   const notesQuery = useNotes(workspaceSlug, projectSlug);
   const createNoteMutation = useCreateNote(workspaceSlug, projectSlug);
+  const deleteNoteMutation = useDeleteNote(workspaceSlug, projectSlug);
   const kind = useFieldState<NoteKind>('context');
   const title = useFieldState('');
   const body = useFieldState('');
@@ -35,6 +36,14 @@ export function NotesPage() {
         },
       },
     );
+  }
+
+  function handleDeleteNote(noteId: string, noteTitle: string) {
+    if (!window.confirm(`Удалить заметку «${noteTitle}»? Это действие необратимо.`)) {
+      return;
+    }
+
+    deleteNoteMutation.mutate(noteId);
   }
 
   return (
@@ -91,6 +100,9 @@ export function NotesPage() {
         {createNoteMutation.error ? (
           <p className="errorText">{getErrorMessage(createNoteMutation.error)}</p>
         ) : null}
+        {deleteNoteMutation.error ? (
+          <p className="errorText">{getErrorMessage(deleteNoteMutation.error)}</p>
+        ) : null}
       </section>
 
       <section className="workPanel">
@@ -98,8 +110,20 @@ export function NotesPage() {
           {notes.map((note) => (
             <article key={note.id} className="noteRow">
               <div className="noteRowHeader">
-                <strong>{note.title ?? 'Без названия'}</strong>
-                <span className="statusPill">{noteKindLabel(note.kind)}</span>
+                <div className="noteRowHeading">
+                  <strong>{note.title ?? 'Без названия'}</strong>
+                  <span className="statusPill">{noteKindLabel(note.kind)}</span>
+                </div>
+                <button
+                  type="button"
+                  className="iconButton dangerIconButton noteDeleteButton"
+                  onClick={() => handleDeleteNote(note.id, note.title ?? 'Без названия')}
+                  disabled={deleteNoteMutation.isPending}
+                  title="Удалить заметку"
+                  aria-label={`Удалить заметку ${note.title ?? 'Без названия'}`}
+                >
+                  <Trash2 size={14} />
+                </button>
               </div>
               <p>{note.body_md}</p>
               <div className="noteMeta">

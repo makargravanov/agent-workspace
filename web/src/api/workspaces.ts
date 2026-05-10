@@ -1,4 +1,4 @@
-import { apiGet, apiPost, type RequestOptions } from './client';
+import { apiDelete, apiGet, apiPost, type RequestOptions } from './client';
 import type {
   ApiListResponse,
   ApiResponse,
@@ -47,6 +47,13 @@ export async function createWorkspace(
   return resp.data;
 }
 
+export async function deleteWorkspace(
+  workspaceSlug: string,
+  opts?: RequestOptions,
+): Promise<void> {
+  await apiDelete(`/workspaces/${workspaceSlug}`, opts);
+}
+
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
 export async function listProjects(
@@ -86,4 +93,12 @@ export async function createProject(
     opts,
   );
   return resp.data;
+}
+
+export async function deleteProject(
+  workspaceSlug: string,
+  projectSlug: string,
+  opts?: RequestOptions,
+): Promise<void> {
+  await apiDelete(`/workspaces/${workspaceSlug}/projects/${projectSlug}`, opts);
 }

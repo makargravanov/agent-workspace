@@ -1,8 +1,8 @@
-import { FolderKanban, Plus, Search } from 'lucide-react';
+import { FolderKanban, Plus, Search, Trash2 } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useCreateProject, useProjects, useWorkspace } from '../../hooks/useWorkspaces';
+import { useCreateProject, useDeleteProject, useProjects, useWorkspace } from '../../hooks/useWorkspaces';
 import { useSession } from '../../hooks/useSession';
 import { getErrorMessage } from '../../shared/lib/errors';
 import { projectStatusLabel, slugify } from '../../shared/lib/text';
@@ -16,8 +16,10 @@ export function WorkspacePage() {
   const workspaceQuery = useWorkspace(workspaceSlug);
   const projectsQuery = useProjects(workspaceSlug);
   const createProjectMutation = useCreateProject(workspaceSlug);
+  const deleteProjectMutation = useDeleteProject(workspaceSlug);
   const actorRole = sessionQuery.data?.actor?.role;
   const canCreateProject = actorRole === 'owner';
+  const canDeleteProject = actorRole === 'owner';
   const { value: name, setValue: setName, slug, setSlug } = useAutoSlug();
   const [search, setSearch] = useState('');
   const projects = projectsQuery.data?.items ?? [];
@@ -78,26 +80,53 @@ export function WorkspacePage() {
         {filteredProjects.length > 0 ? (
           <div className="directoryList">
             {filteredProjects.map((project) => (
-              <Link
-                key={project.id}
-                className="directoryRow"
-                to={`/workspaces/${workspaceSlug}/projects/${project.slug}/tasks`}
-              >
-                <FolderKanban size={18} />
-                <div>
-                  <strong>{project.name}</strong>
-                  <span>{project.slug}</span>
-                </div>
-                <span className={`statusPill status-${project.status}`}>
-                  {projectStatusLabel(project.status)}
-                </span>
-              </Link>
+              <div key={project.id} className="directoryRow directoryRowWithActions">
+                <Link
+                  className="directoryRowMain"
+                  to={`/workspaces/${workspaceSlug}/projects/${project.slug}/tasks`}
+                >
+                  <FolderKanban size={18} />
+                  <div>
+                    <strong>{project.name}</strong>
+                    <span>{project.slug}</span>
+                  </div>
+                  <span className={`statusPill status-${project.status}`}>
+                    {projectStatusLabel(project.status)}
+                  </span>
+                </Link>
+                {canDeleteProject ? (
+                  <div className="rowActions">
+                    <button
+                      type="button"
+                      className="iconButton dangerIconButton"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Удалить проект «${project.name}»? Это действие необратимо.`,
+                          )
+                        ) {
+                          deleteProjectMutation.mutate(project.slug);
+                        }
+                      }}
+                      disabled={deleteProjectMutation.isPending}
+                      title="Удалить проект"
+                      aria-label={`Удалить проект ${project.name}`}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             ))}
           </div>
         ) : (
           <div className="emptyPanel">Проектов нет</div>
         )}
       </section>
+
+      {deleteProjectMutation.error ? (
+        <p className="errorText">{getErrorMessage(deleteProjectMutation.error)}</p>
+      ) : null}
 
       {canCreateProject ? (
         <section className="composePanel">

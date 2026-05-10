@@ -143,6 +143,15 @@ export async function updateTaskStatus(
   return resp.data;
 }
 
+export async function deleteTask(
+  workspaceSlug: string,
+  projectSlug: string,
+  taskId: string,
+  opts?: RequestOptions,
+): Promise<void> {
+  await apiDelete(`${tasksBase(workspaceSlug, projectSlug)}/${taskId}`, opts);
+}
+
 // ─── Task dependencies ────────────────────────────────────────────────────────
 
 export async function listTaskDependencies(

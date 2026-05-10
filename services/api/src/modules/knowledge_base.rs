@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     routing::get,
     Json, Router,
 };
@@ -376,6 +377,57 @@ async fn get_note(
     })
 }
 
+async fn delete_note(
+    State(state): State<AppState>,
+    Path((workspace_slug, project_slug, note_id)): Path<(String, String, String)>,
+    RequestId(request_id): RequestId,
+    actor: ActorContext,
+) -> Result<StatusCode, ApiError> {
+    let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+
+    let (workspace_id, project_id) = ids
+        .ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &workspace_id,
+        &project_id,
+        WorkspaceRole::Editor,
+        Some("notes:write"),
+        &request_id,
+    )
+    .await?;
+
+    let affected = sqlx::query(
+        "DELETE FROM notes
+         WHERE CAST(id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2",
+    )
+    .bind(&note_id)
+    .bind(&project_id)
+    .execute(&state.pool)
+    .await
+    .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
+    .rows_affected();
+
+    if affected == 0 {
+        return Err(ApiError::not_found(&request_id, "note not found"));
+    }
+
+    emit_audit(AuditEvent {
+        request_id: request_id.clone(),
+        actor,
+        action: "note.deleted".to_string(),
+        resource_kind: "note".to_string(),
+        resource_id: note_id,
+        payload: None,
+    });
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route(
@@ -384,7 +436,7 @@ pub fn routes() -> Router<AppState> {
         )
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/notes/{note_id}",
-            get(get_note),
+            get(get_note).delete(delete_note),
         )
 }
 
@@ -591,6 +643,7 @@ mod tests {
             .to_string();
 
         let get_resp = ctx.router
+            .clone()
             .oneshot(
                 Request::builder()
                     .method("GET")
@@ -629,6 +682,85 @@ mod tests {
             .unwrap();
 
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn delete_note_removes_note_and_returns_404_afterward() {
+        let ctx = setup().await;
+
+        let create_payload = serde_json::json!({
+            "kind": "decision",
+            "title": "Delete me",
+            "body_md": "This note will be removed.",
+            "agent_session_id": null
+        });
+
+        let create_resp = ctx.router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(notes_url())
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &ctx.member_id)
+                    .body(Body::from(serde_json::to_vec(&create_payload).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), StatusCode::CREATED);
+
+        let note_id = body_json(create_resp.into_body()).await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let delete_resp = ctx.router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(note_url(&note_id))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &ctx.member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(delete_resp.status(), StatusCode::NO_CONTENT);
+
+        let get_resp = ctx.router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(note_url(&note_id))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &ctx.member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(get_resp.status(), StatusCode::NOT_FOUND);
+
+        let list_resp = ctx.router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(notes_url())
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &ctx.member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let list_body = body_json(list_resp.into_body()).await;
+        assert_eq!(list_body["data"]["items"].as_array().unwrap().len(), 0);
     }
 
     #[tokio::test]

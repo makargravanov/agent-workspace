@@ -1,9 +1,15 @@
-import { Kanban, Plus, Search, Table2 } from 'lucide-react';
+import { Kanban, Plus, Search, Table2, Trash2 } from 'lucide-react';
 import type { DragEvent, FormEvent, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import type { TaskDetail, TaskPriority, TaskStatus } from '../../api/types';
-import { useCreateTask, useMoveTaskStatus, useTasks, useUpdateTaskStatus } from '../../hooks/useTasks';
+import {
+  useCreateTask,
+  useDeleteTask,
+  useMoveTaskStatus,
+  useTasks,
+  useUpdateTaskStatus,
+} from '../../hooks/useTasks';
 import { getErrorMessage } from '../../shared/lib/errors';
 import { formatDateTime, priorityLabel, statusLabel } from '../../shared/lib/text';
 import { useFieldState } from '../../shared/ui/useFieldState';
@@ -26,6 +32,7 @@ export function TasksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tasksQuery = useTasks(workspaceSlug, projectSlug);
   const createTaskMutation = useCreateTask(workspaceSlug, projectSlug);
+  const deleteTaskMutation = useDeleteTask(workspaceSlug, projectSlug);
   const title = useFieldState('');
   const description = useFieldState('');
   const priority = useFieldState<TaskPriority>('normal');
@@ -80,6 +87,14 @@ export function TasksPage() {
     );
   }
 
+  function handleDeleteTask(task: TaskDetail) {
+    if (!window.confirm(`Удалить задачу «${task.title}»? Это действие необратимо.`)) {
+      return;
+    }
+
+    deleteTaskMutation.mutate(task.id);
+  }
+
   return (
     <section className="trackerPage">
       <div className="trackerToolbar">
@@ -129,12 +144,15 @@ export function TasksPage() {
       </div>
 
       {tasksQuery.error ? <p className="errorText">{getErrorMessage(tasksQuery.error)}</p> : null}
+      {deleteTaskMutation.error ? <p className="errorText">{getErrorMessage(deleteTaskMutation.error)}</p> : null}
 
       {view === 'list' ? (
         <TaskList
           workspaceSlug={workspaceSlug}
           projectSlug={projectSlug}
           tasks={filteredTasks}
+          onDeleteTask={handleDeleteTask}
+          deletePending={deleteTaskMutation.isPending}
         />
       ) : (
         <div className="kanbanBoard">
@@ -148,6 +166,8 @@ export function TasksPage() {
               tasks={filteredTasks.filter((task) => task.status === column.status)}
               draggedTaskId={draggedTaskId}
               setDraggedTaskId={setDraggedTaskId}
+              onDeleteTask={handleDeleteTask}
+              deletePending={deleteTaskMutation.isPending}
             >
               {column.status === 'todo' ? (
                 <QuickCreateTask
@@ -175,6 +195,8 @@ function KanbanColumn({
   tasks,
   draggedTaskId,
   setDraggedTaskId,
+  onDeleteTask,
+  deletePending,
   children,
 }: {
   workspaceSlug: string;
@@ -184,6 +206,8 @@ function KanbanColumn({
   tasks: TaskDetail[];
   draggedTaskId: string | null;
   setDraggedTaskId: (taskId: string | null) => void;
+  onDeleteTask: (task: TaskDetail) => void;
+  deletePending: boolean;
   children?: ReactNode;
 }) {
   const moveStatusMutation = useMoveTaskStatus(workspaceSlug, projectSlug);
@@ -227,6 +251,8 @@ function KanbanColumn({
             task={task}
             onDragStart={() => setDraggedTaskId(task.id)}
             onDragEnd={() => setDraggedTaskId(null)}
+            onDelete={() => onDeleteTask(task)}
+            deletePending={deletePending}
           />
         ))}
         {tasks.length === 0 && !children ? <div className="emptyLane">Нет задач</div> : null}
@@ -294,12 +320,16 @@ function TaskCard({
   task,
   onDragStart,
   onDragEnd,
+  onDelete,
+  deletePending,
 }: {
   workspaceSlug: string;
   projectSlug: string;
   task: TaskDetail;
   onDragStart?: () => void;
   onDragEnd?: () => void;
+  onDelete: () => void;
+  deletePending: boolean;
 }) {
   const updateStatusMutation = useUpdateTaskStatus(workspaceSlug, projectSlug, task.id);
 
@@ -313,10 +343,29 @@ function TaskCard({
         onDragStart?.();
       }}
       onDragEnd={onDragEnd}
-    >
+      >
       <div className="taskCardHeader">
-        <span className={`priorityDot priority-${task.priority}`} title={priorityLabel(task.priority)} />
-        <strong>{task.title}</strong>
+        <div className="taskCardHeading">
+          <span
+            className={`priorityDot priority-${task.priority}`}
+            title={priorityLabel(task.priority)}
+          />
+          <strong>{task.title}</strong>
+        </div>
+        <button
+          type="button"
+          className="iconButton dangerIconButton taskCardDelete"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onDelete();
+          }}
+          disabled={deletePending}
+          title="Удалить задачу"
+          aria-label={`Удалить задачу ${task.title}`}
+        >
+          <Trash2 size={14} />
+        </button>
       </div>
       {task.description_md ? <p>{task.description_md}</p> : null}
       <div className="taskCardMeta">
@@ -350,10 +399,14 @@ function TaskList({
   workspaceSlug,
   projectSlug,
   tasks,
+  onDeleteTask,
+  deletePending,
 }: {
   workspaceSlug: string;
   projectSlug: string;
   tasks: TaskDetail[];
+  onDeleteTask: (task: TaskDetail) => void;
+  deletePending: boolean;
 }) {
   if (tasks.length === 0) {
     return <div className="emptyPanel">Нет задач</div>;
@@ -373,13 +426,15 @@ function TaskList({
         </thead>
         <tbody>
           {tasks.map((task) => (
-            <TaskRow
-              key={task.id}
-              workspaceSlug={workspaceSlug}
-              projectSlug={projectSlug}
-              task={task}
-            />
-          ))}
+          <TaskRow
+            key={task.id}
+            workspaceSlug={workspaceSlug}
+            projectSlug={projectSlug}
+            task={task}
+            onDelete={() => onDeleteTask(task)}
+            deletePending={deletePending}
+          />
+        ))}
         </tbody>
       </table>
     </div>
@@ -390,10 +445,14 @@ function TaskRow({
   workspaceSlug,
   projectSlug,
   task,
+  onDelete,
+  deletePending,
 }: {
   workspaceSlug: string;
   projectSlug: string;
   task: TaskDetail;
+  onDelete: () => void;
+  deletePending: boolean;
 }) {
   const updateStatusMutation = useUpdateTaskStatus(workspaceSlug, projectSlug, task.id);
 
@@ -409,20 +468,32 @@ function TaskRow({
       <td>{priorityLabel(task.priority)}</td>
       <td>{formatDateTime(task.updated_at)}</td>
       <td>
-        <select
-          value={task.status}
-          onChange={(event) =>
-            updateStatusMutation.mutate({ status: event.target.value as TaskStatus })
-          }
-          disabled={updateStatusMutation.isPending}
-          aria-label="Статус задачи"
-        >
-          {TASK_STATUSES.map((item) => (
-            <option key={item} value={item}>
-              {statusLabel(item)}
-            </option>
-          ))}
-        </select>
+        <div className="tableActionsCell">
+          <select
+            value={task.status}
+            onChange={(event) =>
+              updateStatusMutation.mutate({ status: event.target.value as TaskStatus })
+            }
+            disabled={updateStatusMutation.isPending}
+            aria-label="Статус задачи"
+          >
+            {TASK_STATUSES.map((item) => (
+              <option key={item} value={item}>
+                {statusLabel(item)}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="iconButton dangerIconButton"
+            onClick={onDelete}
+            disabled={deletePending}
+            title="Удалить задачу"
+            aria-label={`Удалить задачу ${task.title}`}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </td>
     </tr>
   );

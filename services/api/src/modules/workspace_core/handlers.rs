@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     routing::get,
     Json, Router,
 };
@@ -30,14 +31,17 @@ struct CurrentMemberIdentityRow {
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/workspaces", get(list_workspaces).post(create_workspace))
-        .route("/workspaces/{workspace_slug}", get(get_workspace))
+        .route(
+            "/workspaces/{workspace_slug}",
+            get(get_workspace).delete(delete_workspace),
+        )
         .route(
             "/workspaces/{workspace_slug}/projects",
             get(list_projects).post(create_project),
         )
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}",
-            get(get_project),
+            get(get_project).delete(delete_project),
         )
 }
 
@@ -377,6 +381,194 @@ async fn get_project(
     })
 }
 
+async fn delete_project(
+    State(state): State<AppState>,
+    request_id: RequestId,
+    actor: ActorContext,
+    Path((workspace_slug, project_slug)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    let workspace = resolve_workspace(&state, &request_id, &workspace_slug).await?;
+    require_human_workspace_role(
+        &state.pool,
+        &actor,
+        &workspace.id,
+        WorkspaceRole::Owner,
+        &request_id.0,
+    )
+    .await?;
+
+    let project = repo::get_project_by_slug(&state.pool, &workspace.id, &project_slug)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "delete_project db error");
+            ApiError::internal(&request_id.0, "failed to resolve project")
+        })?
+        .ok_or_else(|| {
+            ApiError::not_found(
+                &request_id.0,
+                format!("project '{project_slug}' not found in workspace '{workspace_slug}'"),
+            )
+        })?;
+
+    let mut tx = state.pool.begin().await.map_err(|e| {
+        tracing::error!(error = %e, project_id = %project.id, "delete_project tx begin failed");
+        ApiError::internal(&request_id.0, "failed to delete project")
+    })?;
+
+    let project_id = project.id.clone();
+
+    sqlx::query(
+        "UPDATE tasks SET parent_task_id = NULL
+         WHERE CAST(project_id AS TEXT) = $1",
+    )
+    .bind(&project_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, project_id = %project_id, "delete_project task parent cleanup failed");
+        ApiError::internal(&request_id.0, "failed to delete project")
+    })?;
+
+    sqlx::query(
+        "UPDATE documents SET parent_document_id = NULL
+         WHERE CAST(project_id AS TEXT) = $1",
+    )
+    .bind(&project_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, project_id = %project_id, "delete_project document parent cleanup failed");
+        ApiError::internal(&request_id.0, "failed to delete project")
+    })?;
+
+    for sql in [
+        "DELETE FROM agent_session_tasks WHERE CAST(project_id AS TEXT) = $1",
+        "DELETE FROM task_dependencies WHERE CAST(project_id AS TEXT) = $1",
+        "DELETE FROM notes WHERE CAST(project_id AS TEXT) = $1",
+        "DELETE FROM assets WHERE CAST(project_id AS TEXT) = $1",
+        "DELETE FROM documents WHERE CAST(project_id AS TEXT) = $1",
+        "DELETE FROM tasks WHERE CAST(project_id AS TEXT) = $1",
+        "DELETE FROM task_groups WHERE CAST(project_id AS TEXT) = $1",
+        "DELETE FROM agent_credentials WHERE CAST(project_id AS TEXT) = $1",
+        "DELETE FROM agent_sessions WHERE CAST(project_id AS TEXT) = $1",
+        "DELETE FROM projects WHERE CAST(id AS TEXT) = $1",
+    ] {
+        sqlx::query(sql)
+            .bind(&project_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, project_id = %project_id, "delete_project cascade failed");
+                ApiError::internal(&request_id.0, "failed to delete project")
+            })?;
+    }
+
+    tx.commit().await.map_err(|e| {
+        tracing::error!(error = %e, project_id = %project_id, "delete_project commit failed");
+        ApiError::internal(&request_id.0, "failed to delete project")
+    })?;
+
+    emit_audit(AuditEvent {
+        request_id: request_id.0.clone(),
+        actor,
+        action: "project.deleted".to_string(),
+        resource_kind: "project".to_string(),
+        resource_id: project_id,
+        payload: None,
+    });
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_workspace(
+    State(state): State<AppState>,
+    request_id: RequestId,
+    actor: ActorContext,
+    Path(workspace_slug): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let workspace = resolve_workspace(&state, &request_id, &workspace_slug).await?;
+    require_human_workspace_role(
+        &state.pool,
+        &actor,
+        &workspace.id,
+        WorkspaceRole::Owner,
+        &request_id.0,
+    )
+    .await?;
+
+    let mut tx = state.pool.begin().await.map_err(|e| {
+        tracing::error!(error = %e, workspace_id = %workspace.id, "delete_workspace tx begin failed");
+        ApiError::internal(&request_id.0, "failed to delete workspace")
+    })?;
+
+    let workspace_id = workspace.id.clone();
+
+    sqlx::query(
+        "UPDATE tasks SET parent_task_id = NULL
+         WHERE CAST(workspace_id AS TEXT) = $1",
+    )
+    .bind(&workspace_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, workspace_id = %workspace_id, "delete_workspace task parent cleanup failed");
+        ApiError::internal(&request_id.0, "failed to delete workspace")
+    })?;
+
+    sqlx::query(
+        "UPDATE documents SET parent_document_id = NULL
+         WHERE CAST(workspace_id AS TEXT) = $1",
+    )
+    .bind(&workspace_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, workspace_id = %workspace_id, "delete_workspace document parent cleanup failed");
+        ApiError::internal(&request_id.0, "failed to delete workspace")
+    })?;
+
+    for sql in [
+        "DELETE FROM agent_session_tasks WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM task_dependencies WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM notes WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM assets WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM documents WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM tasks WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM task_groups WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM agent_credentials WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM agent_sessions WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM agents WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM projects WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM workspace_members WHERE CAST(workspace_id AS TEXT) = $1",
+        "DELETE FROM workspaces WHERE CAST(id AS TEXT) = $1",
+    ] {
+        sqlx::query(sql)
+            .bind(&workspace_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, workspace_id = %workspace_id, "delete_workspace cascade failed");
+                ApiError::internal(&request_id.0, "failed to delete workspace")
+            })?;
+    }
+
+    tx.commit().await.map_err(|e| {
+        tracing::error!(error = %e, workspace_id = %workspace_id, "delete_workspace commit failed");
+        ApiError::internal(&request_id.0, "failed to delete workspace")
+    })?;
+
+    emit_audit(AuditEvent {
+        request_id: request_id.0.clone(),
+        actor,
+        action: "workspace.deleted".to_string(),
+        resource_kind: "workspace".to_string(),
+        resource_id: workspace_id,
+        payload: None,
+    });
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -561,6 +753,203 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn delete_workspace_removes_workspace_and_children() {
+        let state = AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite);
+        let member_id = seed_member(&state, "seed-delete-ws", "Seed Delete WS", "owner").await;
+        let (workspace_id,): (String,) = sqlx::query_as(
+            "SELECT id FROM workspaces WHERE slug = ?",
+        )
+        .bind("seed-delete-ws")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        let project_id = Uuid::new_v4().to_string();
+        let task_id = Uuid::new_v4().to_string();
+        let note_id = Uuid::new_v4().to_string();
+
+        sqlx::query(
+            "INSERT INTO projects (id, workspace_id, slug, name, status) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(&project_id)
+        .bind(&workspace_id)
+        .bind("delete-project")
+        .bind("Delete Project")
+        .bind("active")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO tasks
+             (id, workspace_id, project_id, rank_key, title, description_md, status, priority)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(&task_id)
+        .bind(&workspace_id)
+        .bind(&project_id)
+        .bind("rank-a")
+        .bind("Task to delete")
+        .bind("body")
+        .bind("todo")
+        .bind("normal")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO notes
+             (id, workspace_id, project_id, kind, author_type, author_id, title, body_md)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(&note_id)
+        .bind(&workspace_id)
+        .bind(&project_id)
+        .bind("context")
+        .bind("workspace_member")
+        .bind(&member_id)
+        .bind(Some("Note to delete"))
+        .bind("body")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        let router = routes().with_state(state.clone());
+        let resp = router
+            .oneshot(
+                Request::delete("/workspaces/seed-delete-ws")
+                    .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        let (workspace_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM workspaces")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        let (project_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM projects")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        let (task_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tasks")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        let (note_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM notes")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+
+        assert_eq!(workspace_count, 0);
+        assert_eq!(project_count, 0);
+        assert_eq!(task_count, 0);
+        assert_eq!(note_count, 0);
+    }
+
+    #[tokio::test]
+    async fn delete_project_removes_project_children_but_keeps_workspace() {
+        let state = AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite);
+        let member_id = seed_member(&state, "seed-delete-proj-ws", "Seed Delete Project WS", "owner")
+            .await;
+        let (workspace_id,): (String,) = sqlx::query_as(
+            "SELECT id FROM workspaces WHERE slug = ?",
+        )
+        .bind("seed-delete-proj-ws")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        let project_id = Uuid::new_v4().to_string();
+        let task_id = Uuid::new_v4().to_string();
+        let note_id = Uuid::new_v4().to_string();
+
+        sqlx::query(
+            "INSERT INTO projects (id, workspace_id, slug, name, status) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(&project_id)
+        .bind(&workspace_id)
+        .bind("delete-project")
+        .bind("Delete Project")
+        .bind("active")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO tasks
+             (id, workspace_id, project_id, rank_key, title, description_md, status, priority)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(&task_id)
+        .bind(&workspace_id)
+        .bind(&project_id)
+        .bind("rank-a")
+        .bind("Task to delete")
+        .bind("body")
+        .bind("todo")
+        .bind("normal")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO notes
+             (id, workspace_id, project_id, kind, author_type, author_id, title, body_md)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(&note_id)
+        .bind(&workspace_id)
+        .bind(&project_id)
+        .bind("context")
+        .bind("workspace_member")
+        .bind(&member_id)
+        .bind(Some("Note to delete"))
+        .bind("body")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        let router = routes().with_state(state.clone());
+        let resp = router
+            .oneshot(
+                Request::delete("/workspaces/seed-delete-proj-ws/projects/delete-project")
+                    .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        let (workspace_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM workspaces")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        let (project_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM projects")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        let (task_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tasks")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        let (note_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM notes")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+
+        assert_eq!(workspace_count, 1);
+        assert_eq!(project_count, 0);
+        assert_eq!(task_count, 0);
+        assert_eq!(note_count, 0);
     }
 
     #[tokio::test]

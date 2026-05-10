@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../api/query-keys';
 import {
+  deleteTask,
   createTask,
   createTaskGroup,
   getTask,
@@ -93,6 +94,51 @@ export function useCreateTask(workspaceSlug: string, projectSlug: string) {
         queryKeys.task(workspaceSlug, projectSlug, created.id),
         created,
       );
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks(workspaceSlug, projectSlug),
+      });
+    },
+  });
+}
+
+export function useDeleteTask(workspaceSlug: string, projectSlug: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => deleteTask(workspaceSlug, projectSlug, taskId),
+    onMutate: async (taskId) => {
+      const tasksKey = queryKeys.tasks(workspaceSlug, projectSlug);
+      const taskKey = queryKeys.task(workspaceSlug, projectSlug, taskId);
+
+      await queryClient.cancelQueries({ queryKey: tasksKey });
+      await queryClient.cancelQueries({ queryKey: taskKey });
+
+      const previousTasks = queryClient.getQueryData<ApiListData<TaskDetail>>(tasksKey);
+      const previousTask = queryClient.getQueryData<TaskDetail>(taskKey);
+
+      queryClient.setQueryData<ApiListData<TaskDetail>>(tasksKey, (current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.filter((task) => task.id !== taskId),
+            }
+          : current,
+      );
+      queryClient.removeQueries({ queryKey: taskKey });
+
+      return { previousTasks, previousTask };
+    },
+    onError: (_error, _taskId, context) => {
+      if (context?.previousTasks) {
+        queryClient.setQueryData(queryKeys.tasks(workspaceSlug, projectSlug), context.previousTasks);
+      }
+      if (context?.previousTask) {
+        queryClient.setQueryData(
+          queryKeys.task(workspaceSlug, projectSlug, context.previousTask.id),
+          context.previousTask,
+        );
+      }
+    },
+    onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.tasks(workspaceSlug, projectSlug),
       });

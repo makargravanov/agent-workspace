@@ -12,6 +12,7 @@
 
 use axum::{
     extract::{Path, Query, State},
+    http::StatusCode,
     routing::{get, patch},
     Json, Router,
 };
@@ -163,7 +164,7 @@ pub fn routes() -> Router<AppState> {
         )
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/tasks/{task_id}",
-            get(get_task),
+            get(get_task).delete(delete_task),
         )
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/tasks/{task_id}/status",
@@ -590,6 +591,88 @@ async fn update_task_status(
     })
 }
 
+/// `DELETE /workspaces/:workspace_slug/projects/:project_slug/tasks/:task_id`
+///
+/// Deletes a task within the project after clearing child task parent links and
+/// related dependency/session linkage rows.
+async fn delete_task(
+    State(state): State<AppState>,
+    Path((workspace_slug, project_slug, task_id)): Path<(String, String, String)>,
+    RequestId(request_id): RequestId,
+    actor: ActorContext,
+) -> Result<StatusCode, ApiError> {
+    let project = resolve_project(&state.pool, &workspace_slug, &project_slug)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, workspace = %workspace_slug, project = %project_slug, "db error resolving project");
+            ApiError::internal(&request_id, "database error")
+        })?
+        .ok_or_else(|| ApiError::not_found(&request_id, "project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &project.workspace_id,
+        &project.id,
+        WorkspaceRole::Editor,
+        None,
+        &request_id,
+    )
+    .await?;
+
+    let mut tx = state.pool.begin().await.map_err(|e| {
+        tracing::error!(error = %e, task_id = %task_id, "delete_task tx begin failed");
+        ApiError::internal(&request_id, "failed to delete task")
+    })?;
+
+    sqlx::query(
+        "UPDATE tasks SET parent_task_id = NULL
+         WHERE CAST(parent_task_id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2",
+    )
+    .bind(&task_id)
+    .bind(&project.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, task_id = %task_id, "delete_task child cleanup failed");
+        ApiError::internal(&request_id, "failed to delete task")
+    })?;
+
+    for sql in [
+        "DELETE FROM agent_session_tasks WHERE CAST(task_id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2",
+        "DELETE FROM task_dependencies
+         WHERE (CAST(predecessor_task_id AS TEXT) = $1 OR CAST(successor_task_id AS TEXT) = $1)
+           AND CAST(project_id AS TEXT) = $2",
+        "DELETE FROM tasks WHERE CAST(id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2",
+    ] {
+        sqlx::query(sql)
+            .bind(&task_id)
+            .bind(&project.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, task_id = %task_id, "delete_task cascade failed");
+                ApiError::internal(&request_id, "failed to delete task")
+            })?;
+    }
+
+    tx.commit().await.map_err(|e| {
+        tracing::error!(error = %e, task_id = %task_id, "delete_task commit failed");
+        ApiError::internal(&request_id, "failed to delete task")
+    })?;
+
+    emit_audit(AuditEvent {
+        request_id: request_id.clone(),
+        actor,
+        action: "task.deleted".to_string(),
+        resource_kind: "task".to_string(),
+        resource_id: task_id,
+        payload: None,
+    });
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 //
 // Two layers of tests:
@@ -724,6 +807,183 @@ mod validation_tests {
         )
         .await;
         assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+}
+
+#[cfg(test)]
+mod route_tests {
+    use super::*;
+    use crate::app::build_router;
+    use crate::testing::{any_test_pool, fixtures};
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+
+    const RID: &str = "x-request-id";
+    const TEST_RID: &str = "test-request-id";
+    const ACTOR_KIND: &str = "x-actor-kind";
+    const ACTOR_ID: &str = "x-actor-id";
+
+    async fn setup() -> (AppState, axum::Router, String, String, String, String, String) {
+        let pool = any_test_pool().await;
+        let state = AppState::new(pool, crate::db::DatabaseBackend::Sqlite);
+        let workspace_id = Uuid::new_v4().to_string();
+        let member_id = Uuid::new_v4().to_string();
+        let project_id = Uuid::new_v4().to_string();
+        let parent_task_id = Uuid::new_v4().to_string();
+        let child_task_id = Uuid::new_v4().to_string();
+
+        sqlx::query("INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3)")
+            .bind(&workspace_id)
+            .bind(fixtures::WORKSPACE_SLUG)
+            .bind(fixtures::WORKSPACE_NAME)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO workspace_members
+             (id, workspace_id, external_subject, display_name, role, status)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(&member_id)
+        .bind(&workspace_id)
+        .bind("test:member-1")
+        .bind("Test Member")
+        .bind("owner")
+        .bind("active")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO projects (id, workspace_id, slug, name, status) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(&project_id)
+        .bind(&workspace_id)
+        .bind(fixtures::PROJECT_SLUG)
+        .bind(fixtures::PROJECT_NAME)
+        .bind("active")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO tasks
+             (id, workspace_id, project_id, rank_key, title, description_md, status, priority)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(&parent_task_id)
+        .bind(&workspace_id)
+        .bind(&project_id)
+        .bind("rank-a")
+        .bind("Parent task")
+        .bind("body")
+        .bind("todo")
+        .bind("normal")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO tasks
+             (id, workspace_id, project_id, parent_task_id, rank_key, title, description_md, status, priority)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(&child_task_id)
+        .bind(&workspace_id)
+        .bind(&project_id)
+        .bind(&parent_task_id)
+        .bind("rank-b")
+        .bind("Child task")
+        .bind("body")
+        .bind("todo")
+        .bind("normal")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO task_dependencies
+             (id, workspace_id, project_id, predecessor_task_id, successor_task_id, dependency_type, is_hard_block)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&workspace_id)
+        .bind(&project_id)
+        .bind(&parent_task_id)
+        .bind(&child_task_id)
+        .bind("blocks")
+        .bind(true)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        let router = build_router(state.clone());
+
+        (
+            state,
+            router,
+            member_id,
+            workspace_id,
+            project_id,
+            parent_task_id,
+            child_task_id,
+        )
+    }
+
+    #[tokio::test]
+    async fn delete_task_removes_task_and_unlinks_children() {
+        let (state, router, member_id, _workspace_id, project_id, parent_task_id, child_task_id) =
+            setup().await;
+
+        let resp = router
+            .oneshot(
+                Request::delete(format!(
+                    "/api/v1/workspaces/{}/projects/{}/tasks/{parent_task_id}",
+                    fixtures::WORKSPACE_SLUG,
+                    fixtures::PROJECT_SLUG
+                ))
+                .header(RID, TEST_RID)
+                .header(ACTOR_KIND, "human")
+                .header(ACTOR_ID, &member_id)
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        let (parent_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM tasks WHERE id = ? AND project_id = ?",
+        )
+        .bind(&parent_task_id)
+        .bind(&project_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(parent_count, 0);
+
+        let (child_parent_id,): (Option<String>,) = sqlx::query_as(
+            "SELECT parent_task_id FROM tasks WHERE id = ? AND project_id = ?",
+        )
+        .bind(&child_task_id)
+        .bind(&project_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert!(child_parent_id.is_none());
+
+        let (dependency_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM task_dependencies WHERE project_id = ?",
+        )
+        .bind(&project_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(dependency_count, 0);
     }
 }
 

@@ -1,11 +1,21 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { BriefcaseBusiness, CheckSquare, FolderKanban, LayoutDashboard, LogOut, StickyNote } from 'lucide-react';
+import {
+  BriefcaseBusiness,
+  CheckSquare,
+  FolderKanban,
+  LayoutDashboard,
+  LogOut,
+  StickyNote,
+  Trash2,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { logout } from '../../api/auth';
 import { queryKeys } from '../../api/query-keys';
+import { useDeleteProject, useDeleteWorkspace } from '../../hooks/useWorkspaces';
 import { useSession } from '../../hooks/useSession';
 import { useProject, useProjects, useWorkspace, useWorkspaces } from '../../hooks/useWorkspaces';
+import { getErrorMessage } from '../lib/errors';
 
 export function AppFrame({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
@@ -21,6 +31,12 @@ export function AppFrame({ children }: { children: ReactNode }) {
   const projects = projectsQuery.data?.items ?? [];
   const workspaceName = workspaceQuery.data?.name ?? 'Рабочие пространства';
   const projectName = projectQuery.data?.name;
+  const deleteWorkspaceMutation = useDeleteWorkspace();
+  const deleteProjectMutation = useDeleteProject(workspaceSlug);
+  const canDeleteWorkspace = Boolean(workspaceSlug) && !projectSlug && actor?.role === 'owner';
+  const canDeleteProject = Boolean(workspaceSlug && projectSlug) && actor?.role === 'owner';
+  const deleting = deleteWorkspaceMutation.isPending || deleteProjectMutation.isPending;
+  const deletionError = deleteProjectMutation.error ?? deleteWorkspaceMutation.error;
 
   const logoutMutation = useMutation({
     mutationFn: () => logout(),
@@ -30,6 +46,35 @@ export function AppFrame({ children }: { children: ReactNode }) {
       navigate('/login', { replace: true });
     },
   });
+
+  function handleDeleteCurrent() {
+    if (projectSlug) {
+      const label = projectName ?? projectSlug;
+      if (!window.confirm(`Удалить проект «${label}»? Это действие необратимо.`)) {
+        return;
+      }
+
+      deleteProjectMutation.mutate(projectSlug, {
+        onSuccess: () => {
+          navigate(`/workspaces/${workspaceSlug}`, { replace: true });
+        },
+      });
+      return;
+    }
+
+    if (workspaceSlug) {
+      const label = workspaceName ?? workspaceSlug;
+      if (!window.confirm(`Удалить рабочее пространство «${label}»? Это действие необратимо.`)) {
+        return;
+      }
+
+      deleteWorkspaceMutation.mutate(workspaceSlug, {
+        onSuccess: () => {
+          navigate('/workspaces', { replace: true });
+        },
+      });
+    }
+  }
 
   return (
     <div className="appShell">
@@ -119,14 +164,26 @@ export function AppFrame({ children }: { children: ReactNode }) {
           ) : null}
 
           <div className="topBarActions">
-            <div className="actorMeta">
-              <span>{actor?.actor_kind ?? 'human'}</span>
-              <strong>{actor?.role ?? 'member'}</strong>
-            </div>
+          <div className="actorMeta">
+            <span>{actor?.actor_kind ?? 'human'}</span>
+            <strong>{actor?.role ?? 'member'}</strong>
+          </div>
+          {(canDeleteWorkspace || canDeleteProject) ? (
             <button
               type="button"
-              className="iconButton"
-              onClick={() => logoutMutation.mutate()}
+              className="iconButton dangerIconButton"
+              onClick={handleDeleteCurrent}
+              disabled={deleting}
+              title={canDeleteProject ? 'Удалить проект' : 'Удалить рабочее пространство'}
+              aria-label={canDeleteProject ? 'Удалить проект' : 'Удалить рабочее пространство'}
+            >
+              <Trash2 size={18} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="iconButton"
+            onClick={() => logoutMutation.mutate()}
               disabled={logoutMutation.isPending}
               title="Выйти"
               aria-label="Выйти"
@@ -135,6 +192,10 @@ export function AppFrame({ children }: { children: ReactNode }) {
             </button>
           </div>
         </header>
+
+        {deletionError ? (
+          <div className="actionBanner errorBanner">{getErrorMessage(deletionError)}</div>
+        ) : null}
 
         <div className="appContent">{children}</div>
       </main>
