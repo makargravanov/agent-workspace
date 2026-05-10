@@ -1336,11 +1336,25 @@ mod postgres_smoke {
             .expect("response");
         assert_eq!(activity.status(), StatusCode::OK);
         let activity_body = body_json(activity.into_body()).await;
-        assert!(activity_body["data"]["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["entity_type"].as_str() == Some("agent")));
+        let audit_snapshot: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT entity_type, event_type, actor_type
+             FROM audit_events
+             WHERE workspace_id = CAST($1 AS UUID)
+             ORDER BY occurred_at DESC",
+        )
+        .bind(&workspace_id)
+        .fetch_all(&db.pool)
+        .await
+        .expect("fetch audit snapshot");
+        assert!(
+            activity_body["data"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["entity_type"].as_str() == Some("agent")),
+            "activity body: {activity_body}; audit snapshot: {:?}",
+            audit_snapshot
+        );
 
         let search = app
             .clone()
