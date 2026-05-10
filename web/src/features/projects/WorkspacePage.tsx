@@ -20,6 +20,18 @@ export function WorkspacePage() {
   const canCreateProject = actorRole === 'owner';
   const { value: name, setValue: setName, slug, setSlug } = useAutoSlug();
   const [search, setSearch] = useState('');
+  const projects = projectsQuery.data?.items ?? [];
+  const filteredProjects = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) {
+      return projects;
+    }
+    return projects.filter(
+      (project) =>
+        project.name.toLowerCase().includes(query) ||
+        project.slug.toLowerCase().includes(query),
+    );
+  }, [projects, search]);
 
   if (workspaceQuery.isLoading || projectsQuery.isLoading) {
     return <FullPageMessage title="Загрузка рабочего пространства" embedded />;
@@ -34,19 +46,6 @@ export function WorkspacePage() {
       />
     );
   }
-
-  const projects = projectsQuery.data?.items ?? [];
-  const filteredProjects = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) {
-      return projects;
-    }
-    return projects.filter(
-      (project) =>
-        project.name.toLowerCase().includes(query) ||
-        project.slug.toLowerCase().includes(query),
-    );
-  }, [projects, search]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

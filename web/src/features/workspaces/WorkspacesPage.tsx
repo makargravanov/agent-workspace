@@ -14,6 +14,18 @@ export function WorkspacesPage() {
   const createWorkspaceMutation = useCreateWorkspace();
   const { value: name, setValue: setName, slug, setSlug } = useAutoSlug();
   const [search, setSearch] = useState('');
+  const workspaces = workspacesQuery.data?.items ?? [];
+  const filteredWorkspaces = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) {
+      return workspaces;
+    }
+    return workspaces.filter(
+      (workspace) =>
+        workspace.name.toLowerCase().includes(query) ||
+        workspace.slug.toLowerCase().includes(query),
+    );
+  }, [search, workspaces]);
 
   if (workspacesQuery.isLoading) {
     return <FullPageMessage title="Загрузка рабочих пространств" embedded />;
@@ -28,19 +40,6 @@ export function WorkspacesPage() {
       />
     );
   }
-
-  const workspaces = workspacesQuery.data?.items ?? [];
-  const filteredWorkspaces = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) {
-      return workspaces;
-    }
-    return workspaces.filter(
-      (workspace) =>
-        workspace.name.toLowerCase().includes(query) ||
-        workspace.slug.toLowerCase().includes(query),
-    );
-  }, [search, workspaces]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
