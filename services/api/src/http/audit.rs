@@ -78,9 +78,9 @@ pub async fn record_audit(
         .bind(workspace_id)
         .bind(project_id.as_deref())
         .bind(match event.actor.actor_kind {
-            super::actor::ActorKind::Human => "human",
+            super::actor::ActorKind::Human => "workspace_member",
             super::actor::ActorKind::Agent => "agent",
-            super::actor::ActorKind::System => "system",
+            super::actor::ActorKind::System => "integration",
         })
         .bind(actor_id.as_deref())
         .bind(event.resource_kind)
