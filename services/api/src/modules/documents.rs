@@ -1,9 +1,10 @@
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
+use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -57,6 +58,12 @@ pub struct UpdateDocumentRequest {
     pub status: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct RepairDocumentCyclesResponse {
+    pub repaired_document_ids: Vec<String>,
+    pub cycle_groups: Vec<Vec<String>>,
+}
+
 fn default_body_format() -> String {
     "markdown".to_string()
 }
@@ -70,6 +77,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/documents",
             get(list_documents).post(create_document),
+        )
+        .route(
+            "/workspaces/{workspace_slug}/projects/{project_slug}/documents/repair-cycles",
+            post(repair_document_cycles),
         )
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/documents/{document_id}",
@@ -166,6 +177,176 @@ async fn fetch_document(
     .await
 }
 
+async fn fetch_project_documents(
+    pool: &sqlx::AnyPool,
+    project_id: &str,
+) -> Result<Vec<DocumentResponse>, sqlx::Error> {
+    sqlx::query_as::<_, DocumentResponse>(
+        "SELECT CAST(id AS TEXT) AS id,
+                CAST(workspace_id AS TEXT) AS workspace_id,
+                CAST(project_id AS TEXT) AS project_id,
+                CAST(parent_document_id AS TEXT) AS parent_document_id,
+                slug,
+                title,
+                body_format,
+                body_md,
+                status,
+                version,
+                CAST(created_at AS TEXT) AS created_at,
+                CAST(updated_at AS TEXT) AS updated_at
+         FROM documents
+         WHERE CAST(project_id AS TEXT) = $1
+         ORDER BY created_at DESC",
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await
+}
+
+fn detect_document_cycle_groups(documents: &[DocumentResponse]) -> Vec<Vec<String>> {
+    let parent_by_id: HashMap<String, Option<String>> = documents
+        .iter()
+        .map(|document| (document.id.clone(), document.parent_document_id.clone()))
+        .collect();
+    let mut index_by_id = HashMap::<String, usize>::new();
+    let mut low_link_by_id = HashMap::<String, usize>::new();
+    let mut stack = Vec::<String>::new();
+    let mut on_stack = HashSet::<String>::new();
+    let mut components = Vec::<Vec<String>>::new();
+    let mut index = 0usize;
+
+    fn strong_connect(
+        document_id: &str,
+        parent_by_id: &HashMap<String, Option<String>>,
+        index_by_id: &mut HashMap<String, usize>,
+        low_link_by_id: &mut HashMap<String, usize>,
+        stack: &mut Vec<String>,
+        on_stack: &mut HashSet<String>,
+        components: &mut Vec<Vec<String>>,
+        index: &mut usize,
+    ) {
+        index_by_id.insert(document_id.to_string(), *index);
+        low_link_by_id.insert(document_id.to_string(), *index);
+        *index += 1;
+        stack.push(document_id.to_string());
+        on_stack.insert(document_id.to_string());
+
+        if let Some(Some(parent_id)) = parent_by_id.get(document_id) {
+            if parent_by_id.contains_key(parent_id) {
+                if !index_by_id.contains_key(parent_id) {
+                    strong_connect(
+                        parent_id,
+                        parent_by_id,
+                        index_by_id,
+                        low_link_by_id,
+                        stack,
+                        on_stack,
+                        components,
+                        index,
+                    );
+                    let next_low = (*low_link_by_id.get(document_id).unwrap())
+                        .min(*low_link_by_id.get(parent_id).unwrap());
+                    low_link_by_id.insert(document_id.to_string(), next_low);
+                } else if on_stack.contains(parent_id) {
+                    let next_low = (*low_link_by_id.get(document_id).unwrap())
+                        .min(*index_by_id.get(parent_id).unwrap());
+                    low_link_by_id.insert(document_id.to_string(), next_low);
+                }
+            }
+        }
+
+        if low_link_by_id.get(document_id) != index_by_id.get(document_id) {
+            return;
+        }
+
+        let mut component = Vec::<String>::new();
+        while let Some(current_id) = stack.pop() {
+            on_stack.remove(&current_id);
+            component.push(current_id.clone());
+            if current_id == document_id {
+                break;
+            }
+        }
+
+        let self_loop = component.len() == 1
+            && parent_by_id
+                .get(&component[0])
+                .and_then(|parent_id| parent_id.as_ref())
+                .map(|parent_id| parent_id == &component[0])
+                .unwrap_or(false);
+        if component.len() > 1 || self_loop {
+            components.push(component);
+        }
+    }
+
+    for document in documents {
+        if !index_by_id.contains_key(&document.id) {
+            strong_connect(
+                &document.id,
+                &parent_by_id,
+                &mut index_by_id,
+                &mut low_link_by_id,
+                &mut stack,
+                &mut on_stack,
+                &mut components,
+                &mut index,
+            );
+        }
+    }
+
+    components
+}
+
+fn choose_cycle_repair_target(cycle_group: &[String], documents: &[DocumentResponse]) -> String {
+    let document_by_id: HashMap<&str, &DocumentResponse> = documents
+        .iter()
+        .map(|document| (document.id.as_str(), document))
+        .collect();
+
+    cycle_group
+        .iter()
+        .max_by(|left_id, right_id| {
+            let left = document_by_id.get(left_id.as_str()).copied();
+            let right = document_by_id.get(right_id.as_str()).copied();
+
+            left.map(|document| document.updated_at.as_str())
+                .cmp(&right.map(|document| document.updated_at.as_str()))
+                .then_with(|| left_id.cmp(right_id))
+        })
+        .cloned()
+        .unwrap_or_else(|| cycle_group[0].clone())
+}
+
+fn would_create_document_cycle(
+    documents: &[DocumentResponse],
+    document_id: &str,
+    candidate_parent_id: &str,
+) -> bool {
+    let parent_by_id: HashMap<&str, Option<&str>> = documents
+        .iter()
+        .map(|document| {
+            (
+                document.id.as_str(),
+                document.parent_document_id.as_deref(),
+            )
+        })
+        .collect();
+    let mut current_id = Some(candidate_parent_id);
+    let mut visited = HashSet::<&str>::new();
+
+    while let Some(parent_id) = current_id {
+        if parent_id == document_id {
+            return true;
+        }
+        if !visited.insert(parent_id) {
+            return false;
+        }
+        current_id = parent_by_id.get(parent_id).copied().flatten();
+    }
+
+    false
+}
+
 async fn list_documents(
     State(state): State<AppState>,
     RequestId(request_id): RequestId,
@@ -189,27 +370,9 @@ async fn list_documents(
     )
     .await?;
 
-    let items = sqlx::query_as::<_, DocumentResponse>(
-        "SELECT CAST(id AS TEXT) AS id,
-                CAST(workspace_id AS TEXT) AS workspace_id,
-                CAST(project_id AS TEXT) AS project_id,
-                CAST(parent_document_id AS TEXT) AS parent_document_id,
-                slug,
-                title,
-                body_format,
-                body_md,
-                status,
-                version,
-                CAST(created_at AS TEXT) AS created_at,
-                CAST(updated_at AS TEXT) AS updated_at
-         FROM documents
-         WHERE CAST(project_id AS TEXT) = $1
-         ORDER BY created_at DESC",
-    )
-    .bind(&project_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    let items = fetch_project_documents(&state.pool, &project_id)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
 
     Ok(ApiResponse {
         data: ListData {
@@ -442,6 +605,15 @@ async fn update_document(
                     "parent document not found in this project",
                 ));
             }
+            let all_documents = fetch_project_documents(&state.pool, &project_id)
+                .await
+                .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+            if would_create_document_cycle(&all_documents, &document_id, parent_id) {
+                return Err(ApiError::validation_error(
+                    &request_id,
+                    "document cannot become a descendant of itself",
+                ));
+            }
             Some(parent_id.to_string())
         }
         Some(None) => None,
@@ -594,6 +766,105 @@ async fn delete_document(
     .await;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn repair_document_cycles(
+    State(state): State<AppState>,
+    RequestId(request_id): RequestId,
+    actor: ActorContext,
+    Path((workspace_slug, project_slug)): Path<(String, String)>,
+) -> Result<ApiResponse<RepairDocumentCyclesResponse>, ApiError> {
+    let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    let (workspace_id, project_id) =
+        ids.ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &workspace_id,
+        &project_id,
+        WorkspaceRole::Editor,
+        None,
+        &request_id,
+    )
+    .await?;
+
+    let documents = fetch_project_documents(&state.pool, &project_id)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    let cycle_groups = detect_document_cycle_groups(&documents);
+    let repaired_document_ids = cycle_groups
+        .iter()
+        .map(|cycle_group| choose_cycle_repair_target(cycle_group, &documents))
+        .collect::<Vec<_>>();
+
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+
+    let clear_parent_sql = match state.db_backend {
+        DatabaseBackend::Postgres => {
+            "UPDATE documents
+             SET parent_document_id = NULL,
+                 version = version + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE CAST(id AS UUID) = CAST($1 AS UUID)
+               AND CAST(project_id AS UUID) = CAST($2 AS UUID)"
+        }
+        DatabaseBackend::Sqlite => {
+            "UPDATE documents
+             SET parent_document_id = NULL,
+                 version = version + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE CAST(id AS TEXT) = $1
+               AND CAST(project_id AS TEXT) = $2"
+        }
+    };
+
+    for document_id in &repaired_document_ids {
+        sqlx::query(clear_parent_sql)
+            .bind(document_id)
+            .bind(&project_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "document.cycles_repaired".to_string(),
+            resource_kind: "project".to_string(),
+            resource_id: project_id,
+            payload: Some(serde_json::json!({
+                "repaired_document_ids": repaired_document_ids,
+                "cycle_group_count": cycle_groups.len()
+            })),
+        },
+    )
+    .await;
+
+    Ok(ApiResponse {
+        data: RepairDocumentCyclesResponse {
+            repaired_document_ids,
+            cycle_groups,
+        },
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
+    })
 }
 
 #[cfg(test)]

@@ -34,6 +34,7 @@ import {
   useDocument,
   useDocuments,
   useReparentDocument,
+  useRepairDocumentCycles,
   useUpdateDocument,
 } from '../../hooks/useDocuments';
 import { useSession } from '../../hooks/useSession';
@@ -72,6 +73,7 @@ export function DocumentsIndexPage() {
   const sessionQuery = useSession();
   const documentsQuery = useDocuments(workspaceSlug, projectSlug);
   const reparentDocumentMutation = useReparentDocument(workspaceSlug, projectSlug);
+  const repairCyclesMutation = useRepairDocumentCycles(workspaceSlug, projectSlug);
   const canEdit = canEditDocuments(sessionQuery.data?.actor?.role);
   const documents = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data?.items]);
   const tree = useMemo(() => buildDocumentTree(documents), [documents]);
@@ -148,25 +150,7 @@ export function DocumentsIndexPage() {
     setRepairError(null);
 
     try {
-      const refreshed = await documentsQuery.refetch();
-      let latestDocuments = refreshed.data?.items ?? documents;
-      const latestCycleInfo = detectCycleInfo(latestDocuments);
-
-      for (const cycleGroup of latestCycleInfo.cycleGroups) {
-        const repairTargetId = chooseCycleRepairTarget(cycleGroup, latestDocuments);
-        const currentDocument = latestDocuments.find((item) => item.id === repairTargetId);
-        if (!currentDocument?.parent_document_id) {
-          continue;
-        }
-
-        const updated = await reparentWithRetry(repairTargetId, null, latestDocuments);
-        if (!updated) {
-          continue;
-        }
-
-        latestDocuments = latestDocuments.map((item) => (item.id === updated.id ? updated : item));
-      }
-
+      await repairCyclesMutation.mutateAsync();
       await documentsQuery.refetch();
     } catch (error) {
       setRepairError(getErrorMessage(error));
@@ -222,7 +206,7 @@ export function DocumentsIndexPage() {
                   type="button"
                   className="secondaryButton compactButton"
                   onClick={() => void repairCycles()}
-                  disabled={reparentDocumentMutation.isPending}
+                  disabled={repairCyclesMutation.isPending}
                 >
                   Починить циклы
                 </button>
@@ -282,6 +266,9 @@ export function DocumentsIndexPage() {
 
           {reparentDocumentMutation.error ? (
             <p className="errorText">{getErrorMessage(reparentDocumentMutation.error)}</p>
+          ) : null}
+          {repairCyclesMutation.error ? (
+            <p className="errorText">{getErrorMessage(repairCyclesMutation.error)}</p>
           ) : null}
           {repairError ? <p className="errorText">{repairError}</p> : null}
         </div>
@@ -1535,23 +1522,6 @@ function detectCycleInfo(documents: DocumentDetail[]): CycleInfo {
     cycleDocumentIds: [...cycleIds],
     cycleGroups,
   };
-}
-
-function chooseCycleRepairTarget(cycleGroup: string[], documents: DocumentDetail[]): string {
-  const documentById = new Map(documents.map((document) => [document.id, document]));
-  return [...cycleGroup]
-    .sort((leftId, rightId) => {
-      const left = documentById.get(leftId);
-      const right = documentById.get(rightId);
-      const leftTime = left ? new Date(left.updated_at).getTime() : 0;
-      const rightTime = right ? new Date(right.updated_at).getTime() : 0;
-
-      if (leftTime !== rightTime) {
-        return rightTime - leftTime;
-      }
-
-      return leftId.localeCompare(rightId);
-    })[0];
 }
 
 function buildParentOptions(

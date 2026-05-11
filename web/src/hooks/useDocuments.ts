@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createDocument, deleteDocument, getDocument, listDocuments, updateDocument } from '../api/documents';
+import {
+  createDocument,
+  deleteDocument,
+  getDocument,
+  listDocuments,
+  repairDocumentCycles,
+  updateDocument,
+} from '../api/documents';
 import { queryKeys } from '../api/query-keys';
 import type {
   ApiListData,
@@ -116,6 +123,18 @@ export function useDeleteDocument(workspaceSlug: string, projectSlug: string) {
         );
       }
     },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.documents(workspaceSlug, projectSlug),
+      });
+    },
+  });
+}
+
+export function useRepairDocumentCycles(workspaceSlug: string, projectSlug: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => repairDocumentCycles(workspaceSlug, projectSlug),
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.documents(workspaceSlug, projectSlug),

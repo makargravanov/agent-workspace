@@ -5,6 +5,7 @@ import type {
   CreateDocumentPayload,
   DocumentDetail,
   PaginationParams,
+  RepairDocumentCyclesResult,
   UpdateDocumentPayload,
 } from './types';
 
@@ -75,4 +76,17 @@ export async function deleteDocument(
   opts?: RequestOptions,
 ): Promise<void> {
   await apiDelete(`${documentsBase(workspaceSlug, projectSlug)}/${documentId}`, opts);
+}
+
+export async function repairDocumentCycles(
+  workspaceSlug: string,
+  projectSlug: string,
+  opts?: RequestOptions,
+): Promise<RepairDocumentCyclesResult> {
+  const resp = await apiPost<Record<string, never>, ApiResponse<RepairDocumentCyclesResult>>(
+    `${documentsBase(workspaceSlug, projectSlug)}/repair-cycles`,
+    {},
+    opts,
+  );
+  return resp.data;
 }

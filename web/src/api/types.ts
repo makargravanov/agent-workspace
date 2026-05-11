@@ -195,6 +195,11 @@ export interface UpdateDocumentPayload {
   status?: DocumentStatus;
 }
 
+export interface RepairDocumentCyclesResult {
+  repaired_document_ids: string[];
+  cycle_groups: string[][];
+}
+
 export interface CreateWorkspacePayload {
   slug: string;
   name: string;
