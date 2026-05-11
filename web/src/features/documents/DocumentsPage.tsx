@@ -957,9 +957,10 @@ type ParentOption = {
 function buildDocumentTree(documents: DocumentDetail[]): DocumentTreeNode[] {
   const childrenByParent = new Map<string, DocumentDetail[]>();
   const roots: DocumentDetail[] = [];
+  const documentById = new Map(documents.map((document) => [document.id, document]));
 
   for (const document of documents) {
-    if (document.parent_document_id) {
+    if (document.parent_document_id && documentById.has(document.parent_document_id)) {
       const list = childrenByParent.get(document.parent_document_id) ?? [];
       list.push(document);
       childrenByParent.set(document.parent_document_id, list);
@@ -976,13 +977,30 @@ function buildDocumentTree(documents: DocumentDetail[]): DocumentTreeNode[] {
     list.sort(byCreatedAt);
   }
 
-  const buildNode = (document: DocumentDetail, depth: number): DocumentTreeNode => ({
-    document,
-    depth,
-    children: (childrenByParent.get(document.id) ?? []).map((child) => buildNode(child, depth + 1)),
-  });
+  const visited = new Set<string>();
 
-  return roots.map((document) => buildNode(document, 0));
+  const buildNode = (document: DocumentDetail, depth: number, lineage: Set<string>): DocumentTreeNode => {
+    visited.add(document.id);
+    const nextLineage = new Set(lineage);
+    nextLineage.add(document.id);
+
+    return {
+      document,
+      depth,
+      children: (childrenByParent.get(document.id) ?? [])
+        .filter((child) => !nextLineage.has(child.id))
+        .map((child) => buildNode(child, depth + 1, nextLineage)),
+    };
+  };
+
+  const tree: DocumentTreeNode[] = roots.map((document) => buildNode(document, 0, new Set()));
+
+  const fallbackRoots = documents
+    .filter((document) => !visited.has(document.id))
+    .sort(byCreatedAt)
+    .map((document) => buildNode(document, 0, new Set()));
+
+  return [...tree, ...fallbackRoots];
 }
 
 function collectDescendantIds(documents: DocumentDetail[], documentId: string): string[] {
@@ -998,13 +1016,15 @@ function collectDescendantIds(documents: DocumentDetail[], documentId: string): 
   }
 
   const descendants: string[] = [];
+  const visited = new Set<string>();
   const queue = [...(childrenByParent.get(documentId) ?? [])];
 
   while (queue.length > 0) {
     const currentId = queue.shift();
-    if (!currentId) {
+    if (!currentId || visited.has(currentId)) {
       continue;
     }
+    visited.add(currentId);
     descendants.push(currentId);
     queue.push(...(childrenByParent.get(currentId) ?? []));
   }

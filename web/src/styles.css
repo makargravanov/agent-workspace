@@ -136,7 +136,7 @@ h3 {
 }
 
 .appShell.railExpanded {
-  --rail-width: 248px;
+  --rail-width: 300px;
 }
 
 .appRail {
@@ -184,6 +184,7 @@ h3 {
 .brandMarkRail {
   justify-content: center;
   width: 100%;
+  min-width: 0;
   padding: 0;
 }
 
@@ -238,6 +239,7 @@ h3 {
   justify-content: center;
   width: 40px;
   height: 40px;
+  min-width: 0;
   border: 1px solid transparent;
   border-radius: 6px;
   color: var(--text-muted);
@@ -247,6 +249,7 @@ h3 {
 .appRail.isExpanded .railLink {
   justify-content: flex-start;
   width: 100%;
+  min-width: 0;
   padding: 0 12px;
   gap: 10px;
 }
@@ -259,6 +262,7 @@ h3 {
 }
 
 .railLinkLabel {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
