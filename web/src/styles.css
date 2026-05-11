@@ -293,27 +293,7 @@ h3 {
   width: 100%;
   display: grid;
   justify-items: center;
-  gap: 10px;
-}
-
-.railMeta {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  width: 100%;
-  padding-top: 8px;
-}
-
-.appRail.isExpanded .railMeta {
-  justify-content: flex-start;
-}
-
-.railMetaLabel {
-  color: var(--text-muted);
-  font-size: 0.82rem;
-  font-weight: 600;
-  text-transform: capitalize;
+  gap: 8px;
 }
 
 .railToggleFooter {
@@ -1414,36 +1394,60 @@ textarea:focus {
 }
 
 .documentLinkAutocomplete {
+  position: absolute;
+  left: 20px;
+  top: 56px;
+  z-index: 4;
   display: grid;
-  gap: 6px;
-  margin-top: 10px;
-  padding: 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 6px;
-  background: var(--bg-panel-subtle);
+  min-width: 360px;
+  max-width: min(560px, calc(100% - 40px));
+  max-height: 280px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid #313d52;
+  border-radius: 8px;
+  background: #1f2633;
+  box-shadow: 0 16px 36px rgba(9, 30, 66, 0.32);
 }
 
 .documentLinkSuggestion {
-  display: grid;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--text-main);
+  color: #dbe6ff;
   text-align: left;
   cursor: pointer;
 }
 
+.documentLinkSuggestionMain {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
 .documentLinkSuggestion span {
-  color: var(--text-muted);
-  font-size: 0.84rem;
+  color: #9fb0d1;
+  font-size: 0.82rem;
+}
+
+.documentLinkSuggestionKind {
+  flex: 0 0 auto;
+  color: #7f8fb0;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .documentLinkSuggestion:hover,
 .documentLinkSuggestion.isActive {
-  border-color: var(--border-soft);
-  background: var(--bg-panel);
+  background: #2b3648;
 }
 
 .documentEditorShell {
@@ -1495,8 +1499,126 @@ textarea:focus {
 
 .documentEditorTextarea {
   min-height: 56vh;
+  padding: 16px 18px 16px 14px;
+  border: 0;
+  border-radius: 0;
+  background: #11161f;
+  color: #dbe6ff;
   font-family: "IBM Plex Mono", "Consolas", monospace;
   line-height: 1.55;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  resize: none;
+}
+
+.documentEditorTextarea::placeholder {
+  color: #6f7f98;
+}
+
+.documentEditorTextarea:focus {
+  outline: none;
+  border-color: transparent;
+}
+
+.documentCodeEditorPane {
+  display: grid;
+  border: 1px solid #283244;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #11161f;
+}
+
+.documentCodeEditorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-bottom: 1px solid #283244;
+  background: #171e29;
+  color: #a7b6d1;
+  font-size: 0.8rem;
+}
+
+.documentCodeEditorHeader strong {
+  color: #dbe6ff;
+  font-size: 0.82rem;
+}
+
+.documentCodeEditor {
+  position: relative;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  min-height: 56vh;
+}
+
+.documentEditorGutter {
+  overflow: hidden;
+  padding: 16px 0;
+  border-right: 1px solid #283244;
+  background: #171e29;
+  color: #6f7f98;
+  text-align: right;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  user-select: none;
+}
+
+.documentEditorGutter span {
+  display: block;
+  padding: 0 12px 0 8px;
+}
+
+.documentEditorHintControl {
+  position: relative;
+}
+
+.editorHelpButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.editorHelpButton:hover,
+.editorHelpButton.isActive {
+  border-color: var(--border-strong);
+  color: var(--text-main);
+  background: var(--bg-panel-subtle);
+}
+
+.documentEditorHintPopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 3;
+  display: grid;
+  gap: 6px;
+  width: min(320px, 70vw);
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 12px 28px rgba(9, 30, 66, 0.12);
+}
+
+.documentEditorHintPopover strong {
+  font-size: 0.78rem;
+}
+
+.documentEditorHintPopover span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
 }
 
 .markdownPreview {
@@ -1847,12 +1969,6 @@ textarea:focus {
     width: auto;
     display: flex;
     align-items: center;
-  }
-
-  .railMeta,
-  .appRail.isExpanded .railMeta {
-    justify-content: center;
-    padding-top: 0;
   }
 
   .appRail.isExpanded .railToggleFooter {

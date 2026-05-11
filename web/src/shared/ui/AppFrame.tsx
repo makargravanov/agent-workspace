@@ -156,10 +156,6 @@ export function AppFrame({ children }: { children: ReactNode }) {
           >
             {railExpanded ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
           </button>
-          <div className="railMeta">
-            <span className="brandIcon">AW</span>
-            {railExpanded ? <span className="railMetaLabel">{actor?.role ?? 'member'}</span> : null}
-          </div>
         </div>
       </aside>
 

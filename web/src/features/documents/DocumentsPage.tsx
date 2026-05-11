@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Eye,
   FilePenLine,
+  Info,
   Plus,
   RefreshCcw,
   Save,
@@ -796,7 +797,9 @@ export function DocumentEditor({
   const [version] = useState(document?.version ?? 1);
   const [activeSuggestion, setActiveSuggestion] = useState(0);
   const [caretPosition, setCaretPosition] = useState(bodyMd.length);
+  const [helpOpen, setHelpOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const gutterRef = useRef<HTMLDivElement | null>(null);
   const formId = `document-editor-${mode}`;
   const linkAutocomplete = useMemo(
     () => detectLinkAutocomplete(bodyMd, caretPosition),
@@ -907,6 +910,17 @@ export function DocumentEditor({
     () => createMarkdownComponents(workspaceSlug, projectSlug),
     [workspaceSlug, projectSlug],
   );
+  const lineNumbers = useMemo(() => {
+    const totalLines = Math.max(1, bodyMd.split('\n').length);
+    return Array.from({ length: totalLines }, (_, index) => index + 1);
+  }, [bodyMd]);
+
+  function handleEditorScroll() {
+    const scrollTop = textareaRef.current?.scrollTop ?? 0;
+    if (gutterRef.current) {
+      gutterRef.current.scrollTop = scrollTop;
+    }
+  }
 
   return (
     <section className="documentEditorShell">
@@ -1034,42 +1048,80 @@ export function DocumentEditor({
             <section className="documentEditorSection">
               <div className="documentsPaneHeader">
                 <h3>Markdown</h3>
-                <span className="mutedText">Введите `[[` для автодополнения ссылки на документ. Для строк: `[[slug#L12-L18]]`.</span>
-              </div>
-              <label className="field">
-                <span>Содержимое</span>
-                <textarea
-                  ref={textareaRef}
-                  className="documentEditorTextarea"
-                  value={bodyMd}
-                  onChange={(event) => {
-                    setBodyMd(event.target.value);
-                    setCaretPosition(event.target.selectionStart ?? event.target.value.length);
-                    setActiveSuggestion(0);
-                  }}
-                  onClick={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
-                  onKeyUp={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
-                  onKeyDown={handleTextareaKeyDown}
-                  rows={24}
-                  placeholder="# Документ"
-                  required
-                />
-              </label>
-              {linkAutocomplete && linkSuggestions.length > 0 ? (
-                <div className="documentLinkAutocomplete">
-                  {linkSuggestions.map((suggestedDocument, index) => (
-                    <button
-                      key={suggestedDocument.id}
-                      type="button"
-                      className={`documentLinkSuggestion${index === activeSuggestion ? ' isActive' : ''}`}
-                      onClick={() => applyLinkSuggestion(suggestedDocument)}
-                    >
-                      <strong>{suggestedDocument.title}</strong>
-                      <span>{suggestedDocument.slug}</span>
-                    </button>
-                  ))}
+                <div className="documentEditorHintControl">
+                  <button
+                    type="button"
+                    className={`editorHelpButton${helpOpen ? ' isActive' : ''}`}
+                    onClick={() => setHelpOpen((value) => !value)}
+                    aria-expanded={helpOpen}
+                    aria-label="Справка по markdown-ссылкам"
+                    title="Справка по markdown-ссылкам"
+                  >
+                    <Info size={14} />
+                  </button>
+                  {helpOpen ? (
+                    <div className="documentEditorHintPopover">
+                      <strong>Ссылки на документы</strong>
+                      <span>`[[slug]]` или `[[slug|Название ссылки]]`</span>
+                      <strong>Ссылки на строки</strong>
+                      <span>`[[slug#L12-L18]]`</span>
+                      <strong>Автодополнение</strong>
+                      <span>`[[` открывает список, `Enter` выбирает, стрелки двигают выбор.</span>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+              </div>
+              <div className="documentCodeEditorPane">
+                <div className="documentCodeEditorHeader">
+                  <strong>body.md</strong>
+                  <span>{lineNumbers.length} lines</span>
+                </div>
+                <div className="documentCodeEditor">
+                  <div ref={gutterRef} className="documentEditorGutter" aria-hidden="true">
+                    {lineNumbers.map((lineNumber) => (
+                      <span key={lineNumber}>{lineNumber}</span>
+                    ))}
+                  </div>
+                  <textarea
+                    ref={textareaRef}
+                    className="documentEditorTextarea"
+                    value={bodyMd}
+                    onChange={(event) => {
+                      setBodyMd(event.target.value);
+                      setCaretPosition(event.target.selectionStart ?? event.target.value.length);
+                      setActiveSuggestion(0);
+                    }}
+                    onClick={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
+                    onKeyUp={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
+                    onKeyDown={handleTextareaKeyDown}
+                    onScroll={handleEditorScroll}
+                    spellCheck={false}
+                    rows={24}
+                    placeholder="# Документ"
+                    required
+                  />
+                  {linkAutocomplete && linkSuggestions.length > 0 ? (
+                    <div className="documentLinkAutocomplete" role="listbox" aria-label="Подсказки ссылок">
+                      {linkSuggestions.map((suggestedDocument, index) => (
+                        <button
+                          key={suggestedDocument.id}
+                          type="button"
+                          className={`documentLinkSuggestion${index === activeSuggestion ? ' isActive' : ''}`}
+                          onClick={() => applyLinkSuggestion(suggestedDocument)}
+                        >
+                          <div className="documentLinkSuggestionMain">
+                            <strong>{suggestedDocument.title}</strong>
+                            <span>{suggestedDocument.slug}</span>
+                          </div>
+                          <span className="documentLinkSuggestionKind">
+                            {index === activeSuggestion ? 'Enter' : 'Document'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </section>
           </form>
 
