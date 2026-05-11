@@ -64,6 +64,11 @@ pub struct RepairDocumentCyclesResponse {
     pub cycle_groups: Vec<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct MoveDocumentRequest {
+    pub target_parent_document_id: Option<String>,
+}
+
 fn default_body_format() -> String {
     "markdown".to_string()
 }
@@ -87,6 +92,10 @@ pub fn routes() -> Router<AppState> {
             get(get_document)
                 .patch(update_document)
                 .delete(delete_document),
+        )
+        .route(
+            "/workspaces/{workspace_slug}/projects/{project_slug}/documents/{document_id}/move",
+            post(move_document),
         )
 }
 
@@ -336,6 +345,31 @@ fn would_create_document_cycle(
 
     while let Some(parent_id) = current_id {
         if parent_id == document_id {
+            return true;
+        }
+        if !visited.insert(parent_id) {
+            return false;
+        }
+        current_id = parent_by_id.get(parent_id).copied().flatten();
+    }
+
+    false
+}
+
+fn is_descendant_of(
+    documents: &[DocumentResponse],
+    ancestor_document_id: &str,
+    candidate_descendant_id: &str,
+) -> bool {
+    let parent_by_id: HashMap<&str, Option<&str>> = documents
+        .iter()
+        .map(|document| (document.id.as_str(), document.parent_document_id.as_deref()))
+        .collect();
+    let mut current_id = parent_by_id.get(candidate_descendant_id).copied().flatten();
+    let mut visited = HashSet::<&str>::new();
+
+    while let Some(parent_id) = current_id {
+        if parent_id == ancestor_document_id {
             return true;
         }
         if !visited.insert(parent_id) {
@@ -860,6 +894,170 @@ async fn repair_document_cycles(
             repaired_document_ids,
             cycle_groups,
         },
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
+    })
+}
+
+async fn move_document(
+    State(state): State<AppState>,
+    RequestId(request_id): RequestId,
+    actor: ActorContext,
+    Path((workspace_slug, project_slug, document_id)): Path<(String, String, String)>,
+    Json(body): Json<MoveDocumentRequest>,
+) -> Result<ApiResponse<DocumentResponse>, ApiError> {
+    let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    let (workspace_id, project_id) =
+        ids.ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &workspace_id,
+        &project_id,
+        WorkspaceRole::Editor,
+        None,
+        &request_id,
+    )
+    .await?;
+
+    let documents = fetch_project_documents(&state.pool, &project_id)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    let current = documents
+        .iter()
+        .find(|document| document.id == document_id)
+        .cloned()
+        .ok_or_else(|| ApiError::not_found(&request_id, "document not found"))?;
+
+    let target_parent_document_id = match body.target_parent_document_id.as_deref() {
+        Some(parent_id) => {
+            if parent_id == document_id {
+                return Err(ApiError::validation_error(
+                    &request_id,
+                    "document cannot be its own parent",
+                ));
+            }
+            let parent_exists = documents.iter().any(|document| document.id == parent_id);
+            if !parent_exists {
+                return Err(ApiError::not_found(
+                    &request_id,
+                    "parent document not found in this project",
+                ));
+            }
+            Some(parent_id.to_string())
+        }
+        None => None,
+    };
+
+    if current.parent_document_id == target_parent_document_id {
+        return Ok(ApiResponse {
+            data: current,
+            meta: ResponseMeta {
+                request_id,
+                audit_event_id: None,
+            },
+        });
+    }
+
+    let moving_into_descendant = target_parent_document_id
+        .as_deref()
+        .map(|target_parent_id| is_descendant_of(&documents, &document_id, target_parent_id))
+        .unwrap_or(false);
+    let direct_child_ids = if moving_into_descendant {
+        documents
+            .iter()
+            .filter(|document| document.parent_document_id.as_deref() == Some(document_id.as_str()))
+            .map(|document| document.id.clone())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
+    let update_parent_sql = match state.db_backend {
+        DatabaseBackend::Postgres => {
+            "UPDATE documents
+             SET parent_document_id = CAST($1 AS UUID),
+                 version = version + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE CAST(id AS UUID) = CAST($2 AS UUID)
+               AND CAST(project_id AS UUID) = CAST($3 AS UUID)"
+        }
+        DatabaseBackend::Sqlite => {
+            "UPDATE documents
+             SET parent_document_id = $1,
+                 version = version + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE CAST(id AS TEXT) = $2
+               AND CAST(project_id AS TEXT) = $3"
+        }
+    };
+
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+
+    if moving_into_descendant {
+        for child_id in &direct_child_ids {
+            sqlx::query(update_parent_sql)
+                .bind(&current.parent_document_id)
+                .bind(child_id)
+                .bind(&project_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+        }
+    } else if let Some(ref target_parent_id) = target_parent_document_id {
+        if would_create_document_cycle(&documents, &document_id, target_parent_id) {
+            return Err(ApiError::validation_error(
+                &request_id,
+                "document cannot become a descendant of itself",
+            ));
+        }
+    }
+
+    sqlx::query(update_parent_sql)
+        .bind(&target_parent_document_id)
+        .bind(&document_id)
+        .bind(&project_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+
+    let updated = fetch_document(&state.pool, &project_id, &document_id)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
+        .ok_or_else(|| ApiError::internal(&request_id, "document not found after move"))?;
+
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "document.moved".to_string(),
+            resource_kind: "document".to_string(),
+            resource_id: document_id,
+            payload: Some(serde_json::json!({
+                "target_parent_document_id": target_parent_document_id,
+                "reparented_direct_children": direct_child_ids,
+            })),
+        },
+    )
+    .await;
+
+    Ok(ApiResponse {
+        data: updated,
         meta: ResponseMeta {
             request_id,
             audit_event_id: None,

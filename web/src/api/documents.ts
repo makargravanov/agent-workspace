@@ -90,3 +90,21 @@ export async function repairDocumentCycles(
   );
   return resp.data;
 }
+
+export async function moveDocument(
+  workspaceSlug: string,
+  projectSlug: string,
+  documentId: string,
+  targetParentDocumentId: string | null,
+  opts?: RequestOptions,
+): Promise<DocumentDetail> {
+  const resp = await apiPost<
+    { target_parent_document_id: string | null },
+    ApiResponse<DocumentDetail>
+  >(
+    `${documentsBase(workspaceSlug, projectSlug)}/${documentId}/move`,
+    { target_parent_document_id: targetParentDocumentId },
+    opts,
+  );
+  return resp.data;
+}

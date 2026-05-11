@@ -4,6 +4,7 @@ import {
   deleteDocument,
   getDocument,
   listDocuments,
+  moveDocument,
   repairDocumentCycles,
   updateDocument,
 } from '../api/documents';
@@ -136,6 +137,25 @@ export function useRepairDocumentCycles(workspaceSlug: string, projectSlug: stri
   return useMutation({
     mutationFn: () => repairDocumentCycles(workspaceSlug, projectSlug),
     onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.documents(workspaceSlug, projectSlug),
+      });
+    },
+  });
+}
+
+export function useMoveDocument(workspaceSlug: string, projectSlug: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      documentId,
+      targetParentDocumentId,
+    }: {
+      documentId: string;
+      targetParentDocumentId: string | null;
+    }) => moveDocument(workspaceSlug, projectSlug, documentId, targetParentDocumentId),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.document(workspaceSlug, projectSlug, updated.id), updated);
       void queryClient.invalidateQueries({
         queryKey: queryKeys.documents(workspaceSlug, projectSlug),
       });

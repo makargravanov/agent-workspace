@@ -33,7 +33,7 @@ import {
   useDeleteDocument,
   useDocument,
   useDocuments,
-  useReparentDocument,
+  useMoveDocument,
   useRepairDocumentCycles,
   useUpdateDocument,
 } from '../../hooks/useDocuments';
@@ -72,7 +72,7 @@ export function DocumentsIndexPage() {
   const { workspaceSlug = '', projectSlug = '' } = useParams();
   const sessionQuery = useSession();
   const documentsQuery = useDocuments(workspaceSlug, projectSlug);
-  const reparentDocumentMutation = useReparentDocument(workspaceSlug, projectSlug);
+  const moveDocumentMutation = useMoveDocument(workspaceSlug, projectSlug);
   const repairCyclesMutation = useRepairDocumentCycles(workspaceSlug, projectSlug);
   const canEdit = canEditDocuments(sessionQuery.data?.actor?.role);
   const documents = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data?.items]);
@@ -81,51 +81,15 @@ export function DocumentsIndexPage() {
   const rootCount = tree.filter((node) => node.depth === 0).length;
   const [draggedDocumentId, setDraggedDocumentId] = useState<string | null>(null);
   const [repairError, setRepairError] = useState<string | null>(null);
-  const reparentPendingId = reparentDocumentMutation.isPending
-    ? reparentDocumentMutation.variables?.documentId ?? null
+  const reparentPendingId = moveDocumentMutation.isPending
+    ? moveDocumentMutation.variables?.documentId ?? null
     : null;
 
-  async function reparentWithRetry(
-    documentId: string,
-    parentDocumentId: string | null,
-    sourceDocuments: DocumentDetail[] = documents,
-  ) {
-    let currentDocument = sourceDocuments.find((item) => item.id === documentId);
-    if (!currentDocument) {
-      return null;
-    }
-
-    try {
-      return await reparentDocumentMutation.mutateAsync({
-        documentId,
-        payload: {
-          version: currentDocument.version,
-          parent_document_id: parentDocumentId,
-        },
-      });
-    } catch (error) {
-      if (!hasConflict(error)) {
-        throw error;
-      }
-
-      const refreshed = await documentsQuery.refetch();
-      currentDocument = refreshed.data?.items.find((item) => item.id === documentId);
-      if (!currentDocument) {
-        throw error;
-      }
-
-      return reparentDocumentMutation.mutateAsync({
-        documentId,
-        payload: {
-          version: currentDocument.version,
-          parent_document_id: parentDocumentId,
-        },
-      });
-    }
-  }
-
   function moveDocument(documentId: string, parentDocumentId: string | null) {
-    void reparentWithRetry(documentId, parentDocumentId);
+    moveDocumentMutation.mutate({
+      documentId,
+      targetParentDocumentId: parentDocumentId,
+    });
   }
 
   function liftDocument(documentId: string) {
@@ -264,8 +228,8 @@ export function DocumentsIndexPage() {
             <div className="emptyPanel">Документов пока нет.</div>
           )}
 
-          {reparentDocumentMutation.error ? (
-            <p className="errorText">{getErrorMessage(reparentDocumentMutation.error)}</p>
+          {moveDocumentMutation.error ? (
+            <p className="errorText">{getErrorMessage(moveDocumentMutation.error)}</p>
           ) : null}
           {repairCyclesMutation.error ? (
             <p className="errorText">{getErrorMessage(repairCyclesMutation.error)}</p>
@@ -725,7 +689,7 @@ function DocumentMoveControl({
   compact?: boolean;
 }) {
   const documentsQuery = useDocuments(workspaceSlug, projectSlug);
-  const reparentDocumentMutation = useReparentDocument(workspaceSlug, projectSlug);
+  const moveDocumentMutation = useMoveDocument(workspaceSlug, projectSlug);
   const documents = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data?.items]);
   const blockedParentIds = useMemo(
     () => new Set([document.id, ...collectDescendantIds(documents, document.id)]),
@@ -741,13 +705,10 @@ function DocumentMoveControl({
   const liftedParentId = parentDocument?.parent_document_id ?? '';
 
   function handleMove() {
-    reparentDocumentMutation.mutate(
+    moveDocumentMutation.mutate(
       {
         documentId: document.id,
-        payload: {
-          version: document.version,
-          parent_document_id: nextParentId || null,
-        },
+        targetParentDocumentId: nextParentId || null,
       },
       {
         onSuccess: () => {
@@ -774,7 +735,7 @@ function DocumentMoveControl({
             <select
               value={nextParentId}
               onChange={(event) => setNextParentId(event.target.value)}
-              disabled={documentsQuery.isLoading || reparentDocumentMutation.isPending}
+              disabled={documentsQuery.isLoading || moveDocumentMutation.isPending}
             >
               <option value="">Корневой документ</option>
               {parentOptions.map((option) => (
@@ -789,7 +750,7 @@ function DocumentMoveControl({
               type="button"
               className="primaryButton compactButton"
               onClick={handleMove}
-              disabled={reparentDocumentMutation.isPending}
+              disabled={moveDocumentMutation.isPending}
             >
               Применить
             </button>
@@ -797,7 +758,7 @@ function DocumentMoveControl({
               type="button"
               className="secondaryButton compactButton"
               onClick={() => setNextParentId(liftedParentId)}
-              disabled={!document.parent_document_id || reparentDocumentMutation.isPending}
+              disabled={!document.parent_document_id || moveDocumentMutation.isPending}
             >
               На уровень выше
             </button>
@@ -813,8 +774,8 @@ function DocumentMoveControl({
             </button>
           </div>
           {documentsQuery.error ? <p className="errorText">{getErrorMessage(documentsQuery.error)}</p> : null}
-          {reparentDocumentMutation.error ? (
-            <p className="errorText">{getErrorMessage(reparentDocumentMutation.error)}</p>
+          {moveDocumentMutation.error ? (
+            <p className="errorText">{getErrorMessage(moveDocumentMutation.error)}</p>
           ) : null}
         </div>
       ) : null}
