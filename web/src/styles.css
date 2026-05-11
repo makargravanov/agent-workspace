@@ -581,6 +581,10 @@ textarea:focus {
   margin: 0 auto;
 }
 
+.documentEditorPage .documentPageFrame {
+  width: min(1760px, 100%);
+}
+
 .documentsEyebrow {
   color: #6b778c;
   font-size: 0.76rem;
@@ -1470,6 +1474,30 @@ textarea:focus {
   gap: 8px;
 }
 
+.documentModeTabs {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-panel);
+}
+
+.documentModeTab {
+  min-width: 72px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.documentModeTab.isActive {
+  background: #eef1f6;
+  color: var(--text-main);
+}
+
 .documentEditorTextarea {
   min-height: 56vh;
   padding: 14px 18px 14px 16px;
@@ -1503,6 +1531,22 @@ textarea:focus {
 
 .documentEditorWorkbench.inspectorOpen {
   grid-template-columns: 280px minmax(0, 1fr) minmax(360px, 0.82fr);
+}
+
+.documentEditorWorkbench.mode-write {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.documentEditorWorkbench.mode-write.inspectorOpen {
+  grid-template-columns: 280px minmax(0, 1fr);
+}
+
+.documentEditorWorkbench.mode-preview {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.documentEditorWorkbench.mode-preview.inspectorOpen {
+  grid-template-columns: 280px minmax(0, 1fr);
 }
 
 .documentEditorInspector,
@@ -1603,7 +1647,23 @@ textarea:focus {
 
 .documentCodeEditorPane {
   display: grid;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
   background: #ffffff;
+}
+
+.documentCodeEditorPane .cm-editor {
+  height: 68vh;
+  border: 0;
+}
+
+.documentCodeEditorPane .cm-focused {
+  outline: none;
+}
+
+.documentCodeEditorPane .cm-tooltip-autocomplete ul li {
+  display: grid;
+  gap: 2px;
 }
 
 .documentCodeEditor {
@@ -1683,6 +1743,11 @@ textarea:focus {
 .documentEditorPreviewPane {
   position: sticky;
   top: 108px;
+}
+
+.documentEditorWorkbench.mode-preview .documentEditorPreviewPane,
+.documentEditorWorkbench.mode-write .documentEditorMainPane {
+  min-width: 0;
 }
 
 .markdownPreview {

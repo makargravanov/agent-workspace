@@ -10,8 +10,13 @@ import {
   Save,
   Trash2,
 } from 'lucide-react';
-import type { DragEvent, FormEvent, KeyboardEvent, ReactNode } from 'react';
-import { useMemo, useRef, useState } from 'react';
+import type { Completion, CompletionContext } from '@codemirror/autocomplete';
+import { acceptCompletion, autocompletion } from '@codemirror/autocomplete';
+import { markdown } from '@codemirror/lang-markdown';
+import { EditorView, keymap, placeholder as editorPlaceholder } from '@codemirror/view';
+import CodeMirror from '@uiw/react-codemirror';
+import type { DragEvent, FormEvent, ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import 'highlight.js/styles/github.css';
 import ReactMarkdown, { type Components } from 'react-markdown';
@@ -54,11 +59,7 @@ type LineRange = {
   end: number;
 };
 
-type LinkAutocompleteState = {
-  start: number;
-  end: number;
-  query: string;
-};
+type EditorMode = 'write' | 'preview' | 'split';
 
 type CycleInfo = {
   cycleDocumentIds: string[];
@@ -833,36 +834,10 @@ export function DocumentEditor({
   const [status, setStatus] = useState<DocumentStatus>(document?.status ?? DEFAULT_DOCUMENT_STATUS);
   const [slugEdited, setSlugEdited] = useState(Boolean(document?.slug));
   const [version] = useState(document?.version ?? 1);
-  const [activeSuggestion, setActiveSuggestion] = useState(0);
-  const [caretPosition, setCaretPosition] = useState(bodyMd.length);
   const [helpOpen, setHelpOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const gutterRef = useRef<HTMLDivElement | null>(null);
+  const [editorMode, setEditorMode] = useState<EditorMode>('split');
   const formId = `document-editor-${mode}`;
-  const linkAutocomplete = useMemo(
-    () => detectLinkAutocomplete(bodyMd, caretPosition),
-    [bodyMd, caretPosition],
-  );
-  const linkSuggestions = useMemo(() => {
-    if (!linkAutocomplete) {
-      return [];
-    }
-
-    const normalizedQuery = linkAutocomplete.query.toLowerCase().trim();
-    const items = documents.filter((item) => {
-      if (document && item.id === document.id) {
-        return false;
-      }
-      return (
-        normalizedQuery.length === 0 ||
-        item.title.toLowerCase().includes(normalizedQuery) ||
-        item.slug.toLowerCase().includes(normalizedQuery)
-      );
-    });
-
-    return items.slice(0, 8);
-  }, [document, documents, linkAutocomplete]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -891,62 +866,6 @@ export function DocumentEditor({
     });
   }
 
-  function applyLinkSuggestion(suggestedDocument: DocumentDetail) {
-    if (!linkAutocomplete) {
-      return;
-    }
-
-    const replacement = `[[${suggestedDocument.slug}]]`;
-    const nextValue =
-      bodyMd.slice(0, linkAutocomplete.start) + replacement + bodyMd.slice(linkAutocomplete.end);
-
-    setBodyMd(nextValue);
-    setActiveSuggestion(0);
-    setCaretPosition(linkAutocomplete.start + replacement.length);
-
-    queueMicrotask(() => {
-      const nextPosition = linkAutocomplete.start + replacement.length;
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(nextPosition, nextPosition);
-    });
-  }
-
-  function handleTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (!linkAutocomplete || linkSuggestions.length === 0) {
-      return;
-    }
-
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setActiveSuggestion((current) => (current + 1) % linkSuggestions.length);
-      return;
-    }
-
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setActiveSuggestion((current) =>
-        current === 0 ? linkSuggestions.length - 1 : current - 1,
-      );
-      return;
-    }
-
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      applyLinkSuggestion(linkSuggestions[activeSuggestion] ?? linkSuggestions[0]);
-      return;
-    }
-
-    if (event.key === 'Tab') {
-      event.preventDefault();
-      applyLinkSuggestion(linkSuggestions[activeSuggestion] ?? linkSuggestions[0]);
-      return;
-    }
-
-    if (event.key === 'Escape') {
-      setActiveSuggestion(0);
-    }
-  }
-
   const previewBody = useMemo(
     () => transformWikiLinks(bodyMd || '*Пустой документ*', documents, workspaceSlug, projectSlug),
     [bodyMd, documents, projectSlug, workspaceSlug],
@@ -956,17 +875,25 @@ export function DocumentEditor({
     [workspaceSlug, projectSlug],
   );
   const documentTree = useMemo(() => buildDocumentTree(documents), [documents]);
-  const lineNumbers = useMemo(() => {
-    const totalLines = Math.max(1, bodyMd.split('\n').length);
-    return Array.from({ length: totalLines }, (_, index) => index + 1);
-  }, [bodyMd]);
-
-  function handleEditorScroll() {
-    const scrollTop = textareaRef.current?.scrollTop ?? 0;
-    if (gutterRef.current) {
-      gutterRef.current.scrollTop = scrollTop;
-    }
-  }
+  const lineCount = useMemo(() => Math.max(1, bodyMd.split('\n').length), [bodyMd]);
+  const wikiLinkCompletion = useMemo(
+    () => createWikiLinkCompletionSource(documents, document?.id ?? null),
+    [document?.id, documents],
+  );
+  const editorExtensions = useMemo(
+    () => [
+      markdown(),
+      autocompletion({
+        override: [wikiLinkCompletion],
+        activateOnTyping: true,
+        defaultKeymap: true,
+      }),
+      keymap.of([{ key: 'Tab', run: acceptCompletion }]),
+      editorPlaceholder('# Документ'),
+      documentEditorTheme,
+    ],
+    [wikiLinkCompletion],
+  );
 
   return (
     <section className="documentEditorShell">
@@ -980,6 +907,29 @@ export function DocumentEditor({
         </div>
 
         <div className="rowActions">
+          <div className="documentModeTabs" role="tablist" aria-label="Режим редактора">
+            <button
+              type="button"
+              className={`documentModeTab${editorMode === 'write' ? ' isActive' : ''}`}
+              onClick={() => setEditorMode('write')}
+            >
+              Write
+            </button>
+            <button
+              type="button"
+              className={`documentModeTab${editorMode === 'preview' ? ' isActive' : ''}`}
+              onClick={() => setEditorMode('preview')}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              className={`documentModeTab${editorMode === 'split' ? ' isActive' : ''}`}
+              onClick={() => setEditorMode('split')}
+            >
+              Split
+            </button>
+          </div>
           <button
             type="button"
             className="secondaryButton compactButton"
@@ -1024,7 +974,11 @@ export function DocumentEditor({
           Только просмотр. Для изменения документа нужны права editor или owner.
         </div>
       ) : (
-        <form id={formId} className={`documentEditorWorkbench${inspectorOpen ? ' inspectorOpen' : ''}`} onSubmit={handleSubmit}>
+        <form
+          id={formId}
+          className={`documentEditorWorkbench${inspectorOpen ? ' inspectorOpen' : ''} mode-${editorMode}`}
+          onSubmit={handleSubmit}
+        >
           {inspectorOpen ? (
             <aside className="documentEditorInspector">
               <section className="documentInspectorSection">
@@ -1119,11 +1073,12 @@ export function DocumentEditor({
             </aside>
           ) : null}
 
+          {editorMode !== 'preview' ? (
           <section className="documentEditorMainPane">
             <div className="documentEditorSurfaceHeader">
               <div className="documentEditorSurfaceTitle">
                 <strong>body.md</strong>
-                <span>{lineNumbers.length} lines</span>
+                <span>{lineCount} lines</span>
               </div>
               <div className="documentEditorHintControl">
                 <button
@@ -1150,55 +1105,26 @@ export function DocumentEditor({
             </div>
 
             <div className="documentCodeEditorPane">
-              <div className="documentCodeEditor">
-                <div ref={gutterRef} className="documentEditorGutter" aria-hidden="true">
-                  {lineNumbers.map((lineNumber) => (
-                    <span key={lineNumber}>{lineNumber}</span>
-                  ))}
-                </div>
-                <textarea
-                  ref={textareaRef}
-                  className="documentEditorTextarea"
-                  value={bodyMd}
-                  onChange={(event) => {
-                    setBodyMd(event.target.value);
-                    setCaretPosition(event.target.selectionStart ?? event.target.value.length);
-                    setActiveSuggestion(0);
-                  }}
-                  onClick={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
-                  onKeyUp={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
-                  onKeyDown={handleTextareaKeyDown}
-                  onScroll={handleEditorScroll}
-                  spellCheck={false}
-                  rows={24}
-                  placeholder="# Документ"
-                  required
-                />
-                {linkAutocomplete && linkSuggestions.length > 0 ? (
-                  <div className="documentLinkAutocomplete" role="listbox" aria-label="Подсказки ссылок">
-                    {linkSuggestions.map((suggestedDocument, index) => (
-                      <button
-                        key={suggestedDocument.id}
-                        type="button"
-                        className={`documentLinkSuggestion${index === activeSuggestion ? ' isActive' : ''}`}
-                        onClick={() => applyLinkSuggestion(suggestedDocument)}
-                      >
-                        <div className="documentLinkSuggestionMain">
-                          <strong>{suggestedDocument.slug}</strong>
-                          <span>{suggestedDocument.title}</span>
-                        </div>
-                      </button>
-                    ))}
-                    <div className="documentLinkAutocompleteFooter">
-                      <span>Press Enter to insert</span>
-                      <span>Tab to replace</span>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
+              <CodeMirror
+                value={bodyMd}
+                height="68vh"
+                extensions={editorExtensions}
+                onChange={(value) => setBodyMd(value)}
+                basicSetup={{
+                  lineNumbers: true,
+                  foldGutter: false,
+                  dropCursor: false,
+                  allowMultipleSelections: false,
+                  highlightActiveLine: false,
+                  highlightActiveLineGutter: false,
+                  autocompletion: true,
+                }}
+              />
             </div>
           </section>
+          ) : null}
 
+          {editorMode !== 'write' ? (
           <aside className="documentEditorPreviewPane">
             <div className="documentsPaneHeader">
               <h3>Preview</h3>
@@ -1243,6 +1169,7 @@ export function DocumentEditor({
               </div>
             </article>
           </aside>
+          ) : null}
         </form>
       )}
 
@@ -1279,6 +1206,107 @@ function hasConflict(error: unknown): boolean {
 
 function canEditDocuments(role: string | undefined): boolean {
   return role === 'owner' || role === 'editor';
+}
+
+const documentEditorTheme = EditorView.theme({
+  '&': {
+    height: '100%',
+    fontSize: '14px',
+    backgroundColor: '#ffffff',
+  },
+  '.cm-scroller': {
+    overflow: 'auto',
+    fontFamily: '"IBM Plex Mono", "Consolas", monospace',
+    lineHeight: '1.55',
+  },
+  '.cm-content': {
+    minHeight: '68vh',
+    padding: '14px 18px 14px 0',
+    caretColor: '#172b4d',
+  },
+  '.cm-line': {
+    paddingLeft: '16px',
+  },
+  '.cm-gutters': {
+    borderRight: '1px solid #dfe1e6',
+    backgroundColor: '#fbfcfe',
+    color: '#7a869a',
+  },
+  '.cm-activeLineGutter': {
+    backgroundColor: '#fbfcfe',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete': {
+    border: '1px solid #c1c7d0',
+    borderRadius: '0',
+    boxShadow: '0 8px 18px rgba(9, 30, 66, 0.14)',
+    backgroundColor: '#ffffff',
+  },
+  '.cm-tooltip-autocomplete > ul': {
+    maxHeight: '280px',
+    fontFamily: '"IBM Plex Sans", "Segoe UI", sans-serif',
+  },
+  '.cm-tooltip-autocomplete > ul > li': {
+    padding: '6px 10px',
+    borderRadius: '0',
+  },
+  '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+    backgroundColor: '#deebff',
+    color: '#172b4d',
+  },
+  '.cm-completionDetail': {
+    color: '#5e6c84',
+  },
+});
+
+function createWikiLinkCompletionSource(documents: DocumentDetail[], currentDocumentId: string | null) {
+  const options = documents
+    .filter((document) => document.id !== currentDocumentId)
+    .map<Completion>((document) => ({
+      label: document.slug,
+      detail: document.title,
+      type: 'text',
+      apply: `${document.slug}]]`,
+    }));
+
+  return (context: CompletionContext) => {
+    const lookbehind = context.state.sliceDoc(Math.max(0, context.pos - 200), context.pos);
+    const openIndex = lookbehind.lastIndexOf('[[');
+    const closeIndex = lookbehind.lastIndexOf(']]');
+
+    if (openIndex === -1 || closeIndex > openIndex) {
+      return null;
+    }
+
+    const absoluteOpenIndex = context.pos - (lookbehind.length - openIndex);
+    const query = lookbehind.slice(openIndex + 2);
+
+    if (query.includes('\n') || query.includes(']') || query.includes('#')) {
+      return null;
+    }
+
+    const normalizedQuery = query.trim().toLowerCase();
+    const filteredOptions = options.filter((option) => {
+      if (normalizedQuery.length === 0) {
+        return true;
+      }
+
+      return (
+        option.label.toLowerCase().includes(normalizedQuery) ||
+        String(option.detail ?? '').toLowerCase().includes(normalizedQuery)
+      );
+    });
+
+    if (filteredOptions.length === 0 && !context.explicit) {
+      return null;
+    }
+
+    return {
+      from: absoluteOpenIndex + 2,
+      to: context.pos,
+      options: filteredOptions,
+      validFor: /^[^\]\n#|]*$/,
+    };
+  };
 }
 
 function buildDocumentTree(documents: DocumentDetail[]): DocumentTreeNode[] {
@@ -1462,27 +1490,6 @@ function buildSourceLineWindow(bodyMd: string, range: LineRange | null) {
       highlighted: lineNumber >= range.start && lineNumber <= range.end,
     };
   });
-}
-
-function detectLinkAutocomplete(value: string, caretPosition: number): LinkAutocompleteState | null {
-  const beforeCaret = value.slice(0, caretPosition);
-  const openIndex = beforeCaret.lastIndexOf('[[');
-  const closeIndex = beforeCaret.lastIndexOf(']]');
-
-  if (openIndex === -1 || closeIndex > openIndex) {
-    return null;
-  }
-
-  const query = beforeCaret.slice(openIndex + 2);
-  if (query.includes('\n') || query.includes(']')) {
-    return null;
-  }
-
-  return {
-    start: openIndex,
-    end: caretPosition,
-    query: query.split('#')[0].split('|')[0].trim(),
-  };
 }
 
 function resolveDocumentReference(reference: string, documents: DocumentDetail[]): DocumentDetail | null {
