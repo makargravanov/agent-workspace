@@ -1,6 +1,6 @@
 import { KeyRound, Plus, Save, Trash2 } from 'lucide-react';
 import type { FormEvent } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   useAgent,
@@ -58,16 +58,9 @@ export function AgentDetailsPage() {
   const [editScopes, setEditScopes] = useState<string[]>(['tasks:read']);
   const updateCredentialMutation = useUpdateAgentCredential(workspaceSlug, editingCredentialId ?? '');
 
-  useEffect(() => {
-    if (createCredentialMutation.data) {
-      setSecret(createCredentialMutation.data.secret);
-      setShowCreate(false);
-    }
-  }, [createCredentialMutation.data]);
-
-  const projects = projectsQuery.data?.items ?? [];
+  const projects = useMemo(() => projectsQuery.data?.items ?? [], [projectsQuery.data?.items]);
   const agent = agentQuery.data;
-  const credentials = credentialsQuery.data?.items ?? [];
+  const credentials = useMemo(() => credentialsQuery.data?.items ?? [], [credentialsQuery.data?.items]);
   const credentialCount = credentials.length;
   const projectNameById = useMemo(() => new Map(projects.map((project) => [project.id, project.name])), [projects]);
 
@@ -156,6 +149,7 @@ export function AgentDetailsPage() {
         onSuccess: (created) => {
           setSecret(created.secret);
           resetCredentialForm();
+          setShowCreate(false);
         },
       },
     );
@@ -190,17 +184,17 @@ export function AgentDetailsPage() {
                 type="button"
                 className="secondaryButton compactButton"
                 onClick={() =>
-                    updateAgentMutation.mutate({
-                      key: currentAgent.key,
-                      display_name: currentAgent.display_name,
-                      status: currentAgent.status === 'active' ? 'disabled' : 'active',
-                    })
-                  }
-                  disabled={updateAgentMutation.isPending}
-                >
-                  <Save size={16} />
-                  <span>{currentAgent.status === 'active' ? 'Отключить' : 'Активировать'}</span>
-                </button>
+                  updateAgentMutation.mutate({
+                    key: currentAgent.key,
+                    display_name: currentAgent.display_name,
+                    status: currentAgent.status === 'active' ? 'disabled' : 'active',
+                  })
+                }
+                disabled={updateAgentMutation.isPending}
+              >
+                <Save size={16} />
+                <span>{currentAgent.status === 'active' ? 'Отключить' : 'Активировать'}</span>
+              </button>
               <button
                 type="button"
                 className="iconButton dangerIconButton"

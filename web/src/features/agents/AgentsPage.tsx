@@ -21,7 +21,7 @@ export function AgentsPage() {
   const { value: displayName, setValue: setDisplayName, slug: key, setSlug: setKey } = useAutoSlug();
   const [search, setSearch] = useState('');
 
-  const agents = agentsQuery.data?.items ?? [];
+  const agents = useMemo(() => agentsQuery.data?.items ?? [], [agentsQuery.data?.items]);
   const filteredAgents = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return agents;

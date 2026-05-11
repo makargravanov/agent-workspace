@@ -42,7 +42,7 @@ export function TasksPage() {
   const search = searchParams.get('q') ?? '';
   const status = normalizeStatusFilter(searchParams.get('status'));
   const priorityFilter = normalizePriorityFilter(searchParams.get('priority'));
-  const tasks = tasksQuery.data?.items ?? [];
+  const tasks = useMemo(() => tasksQuery.data?.items ?? [], [tasksQuery.data?.items]);
 
   const filteredTasks = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -343,7 +343,7 @@ function TaskCard({
         onDragStart?.();
       }}
       onDragEnd={onDragEnd}
-      >
+    >
       <div className="taskCardHeader">
         <div className="taskCardHeading">
           <span
@@ -426,15 +426,15 @@ function TaskList({
         </thead>
         <tbody>
           {tasks.map((task) => (
-          <TaskRow
-            key={task.id}
-            workspaceSlug={workspaceSlug}
-            projectSlug={projectSlug}
-            task={task}
-            onDelete={() => onDeleteTask(task)}
-            deletePending={deletePending}
-          />
-        ))}
+            <TaskRow
+              key={task.id}
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+              task={task}
+              onDelete={() => onDeleteTask(task)}
+              deletePending={deletePending}
+            />
+          ))}
         </tbody>
       </table>
     </div>

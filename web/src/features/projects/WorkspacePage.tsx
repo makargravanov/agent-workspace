@@ -22,7 +22,7 @@ export function WorkspacePage() {
   const canDeleteProject = actorRole === 'owner';
   const { value: name, setValue: setName, slug, setSlug } = useAutoSlug();
   const [search, setSearch] = useState('');
-  const projects = projectsQuery.data?.items ?? [];
+  const projects = useMemo(() => projectsQuery.data?.items ?? [], [projectsQuery.data?.items]);
   const filteredProjects = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) {

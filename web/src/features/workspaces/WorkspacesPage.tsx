@@ -14,7 +14,7 @@ export function WorkspacesPage() {
   const createWorkspaceMutation = useCreateWorkspace();
   const { value: name, setValue: setName, slug, setSlug } = useAutoSlug();
   const [search, setSearch] = useState('');
-  const workspaces = workspacesQuery.data?.items ?? [];
+  const workspaces = useMemo(() => workspacesQuery.data?.items ?? [], [workspacesQuery.data?.items]);
   const filteredWorkspaces = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) {
