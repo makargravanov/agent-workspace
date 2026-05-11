@@ -7,11 +7,14 @@ import {
   KeyRound,
   LayoutDashboard,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
   StickyNote,
   Trash2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { logout } from '../../api/auth';
 import { queryKeys } from '../../api/query-keys';
@@ -34,6 +37,7 @@ type ContextLink = {
 };
 
 export function AppFrame({ children }: { children: ReactNode }) {
+  const [railExpanded, setRailExpanded] = useState(false);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { workspaceSlug = '', projectSlug = '' } = useParams();
@@ -97,12 +101,24 @@ export function AppFrame({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="appShell">
-      <aside className="appRail">
+    <div className={`appShell${railExpanded ? ' railExpanded' : ''}`}>
+      <aside className={`appRail${railExpanded ? ' isExpanded' : ''}`}>
         <div className="appRailGroup">
-          <Link className="brandMark brandMarkRail" to="/workspaces" aria-label="Agent Workspace">
-            <span className="brandIcon">AW</span>
-          </Link>
+          <div className="appRailHeader">
+            <Link className="brandMark brandMarkRail" to="/workspaces" aria-label="Agent Workspace">
+              <span className="brandIcon">AW</span>
+              {railExpanded ? <span className="brandLabel">Agent Workspace</span> : null}
+            </Link>
+            <button
+              type="button"
+              className="railToggle"
+              onClick={() => setRailExpanded((value) => !value)}
+              aria-label={railExpanded ? 'Свернуть боковую панель' : 'Раскрыть боковую панель'}
+              title={railExpanded ? 'Свернуть' : 'Раскрыть'}
+            >
+              {railExpanded ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+            </button>
+          </div>
 
           <nav className="railNav" aria-label="Основная навигация">
             <RailLink
@@ -110,12 +126,14 @@ export function AppFrame({ children }: { children: ReactNode }) {
               icon={BriefcaseBusiness}
               label="Рабочие пространства"
               end
+              expanded={railExpanded}
             />
             {workspaceSlug ? (
               <RailLink
                 to={`/workspaces/${workspaceSlug}`}
                 icon={FolderKanban}
                 label={currentWorkspace?.name ?? workspaceName}
+                expanded={railExpanded}
               />
             ) : null}
             {workspaceSlug && projectSlug ? (
@@ -123,6 +141,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
                 to={`/workspaces/${workspaceSlug}/projects/${projectSlug}`}
                 icon={LayoutDashboard}
                 label={currentProject?.name ?? projectName ?? projectSlug}
+                expanded={railExpanded}
               />
             ) : null}
             {workspaceSlug ? (
@@ -130,9 +149,17 @@ export function AppFrame({ children }: { children: ReactNode }) {
                 to={`/workspaces/${workspaceSlug}/agents`}
                 icon={KeyRound}
                 label="Agents"
+                expanded={railExpanded}
               />
             ) : null}
           </nav>
+        </div>
+
+        <div className="appRailFooter">
+          <div className="railMeta">
+            <span className="brandIcon">AW</span>
+            {railExpanded ? <span className="railMetaLabel">{actor?.role ?? 'member'}</span> : null}
+          </div>
         </div>
       </aside>
 
@@ -212,11 +239,13 @@ function RailLink({
   icon: Icon,
   label,
   end,
+  expanded,
 }: {
   to: string;
   icon: LucideIcon;
   label: string;
   end?: boolean;
+  expanded: boolean;
 }) {
   return (
     <NavLink
@@ -227,7 +256,7 @@ function RailLink({
       aria-label={label}
     >
       <Icon size={18} />
-      <span className="srOnly">{label}</span>
+      {expanded ? <span className="railLinkLabel">{label}</span> : <span className="srOnly">{label}</span>}
     </NavLink>
   );
 }
