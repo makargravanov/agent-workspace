@@ -57,6 +57,25 @@ export function useUpdateDocument(workspaceSlug: string, projectSlug: string, do
   });
 }
 
+export function useReparentDocument(workspaceSlug: string, projectSlug: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      documentId,
+      payload,
+    }: {
+      documentId: string;
+      payload: UpdateDocumentPayload;
+    }) => updateDocument(workspaceSlug, projectSlug, documentId, payload),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKeys.document(workspaceSlug, projectSlug, updated.id), updated);
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.documents(workspaceSlug, projectSlug),
+      });
+    },
+  });
+}
+
 export function useDeleteDocument(workspaceSlug: string, projectSlug: string) {
   const queryClient = useQueryClient();
   return useMutation({

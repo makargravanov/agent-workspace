@@ -633,6 +633,16 @@ textarea:focus {
   border-bottom: 1px solid var(--border-soft);
 }
 
+.documentRootDropZone {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  background: rgba(255, 255, 255, 0.72);
+}
+
 .documentsFactList div {
   display: grid;
   gap: 4px;
@@ -1291,6 +1301,10 @@ textarea:focus {
   border-bottom: 1px solid var(--border-soft);
 }
 
+.documentTreeRow.isDragging {
+  opacity: 0.55;
+}
+
 .documentTreeRowMain {
   min-width: 0;
   flex: 1 1 auto;
@@ -1334,8 +1348,41 @@ textarea:focus {
   color: var(--accent);
 }
 
+.documentTreeRowMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .documentTreeChildren {
   display: grid;
+}
+
+.documentMoveControl {
+  position: relative;
+}
+
+.documentMoveControl.isCompact {
+  display: inline-flex;
+}
+
+.documentMoveTrigger {
+  min-width: 0;
+}
+
+.documentMovePanel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  display: grid;
+  gap: 10px;
+  width: min(320px, 70vw);
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  box-shadow: 0 10px 24px rgba(9, 30, 66, 0.08);
 }
 
 .documentEditorShell {

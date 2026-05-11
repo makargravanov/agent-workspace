@@ -9,7 +9,7 @@ import {
   Save,
   Trash2,
 } from 'lucide-react';
-import type { FormEvent, ReactNode } from 'react';
+import type { DragEvent, FormEvent, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import 'highlight.js/styles/github.css';
@@ -27,6 +27,7 @@ import {
   useDeleteDocument,
   useDocument,
   useDocuments,
+  useReparentDocument,
   useUpdateDocument,
 } from '../../hooks/useDocuments';
 import { useSession } from '../../hooks/useSession';
@@ -41,10 +42,27 @@ export function DocumentsIndexPage() {
   const { workspaceSlug = '', projectSlug = '' } = useParams();
   const sessionQuery = useSession();
   const documentsQuery = useDocuments(workspaceSlug, projectSlug);
+  const reparentDocumentMutation = useReparentDocument(workspaceSlug, projectSlug);
   const canEdit = canEditDocuments(sessionQuery.data?.actor?.role);
   const documents = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data?.items]);
   const tree = useMemo(() => buildDocumentTree(documents), [documents]);
   const rootCount = tree.length;
+  const [draggedDocumentId, setDraggedDocumentId] = useState<string | null>(null);
+
+  function moveDocument(documentId: string, parentDocumentId: string | null) {
+    const currentDocument = documents.find((item) => item.id === documentId);
+    if (!currentDocument) {
+      return;
+    }
+
+    reparentDocumentMutation.mutate({
+      documentId,
+      payload: {
+        version: currentDocument.version,
+        parent_document_id: parentDocumentId,
+      },
+    });
+  }
 
   if (documentsQuery.isLoading) {
     return <FullPageMessage title="Загрузка документов" embedded />;
@@ -91,20 +109,53 @@ export function DocumentsIndexPage() {
             <span className="mutedText">{documents.length}</span>
           </div>
 
+          {canEdit ? (
+            <div
+              className="documentRootDropZone"
+              onDragOver={(event) => {
+                event.preventDefault();
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const documentId = event.dataTransfer.getData('text/document-id') || draggedDocumentId;
+                setDraggedDocumentId(null);
+                if (!documentId) {
+                  return;
+                }
+                const currentDocument = documents.find((item) => item.id === documentId);
+                if (!currentDocument || currentDocument.parent_document_id === null) {
+                  return;
+                }
+                moveDocument(documentId, null);
+              }}
+            >
+              Перетащите сюда, чтобы сделать документ корневым
+            </div>
+          ) : null}
+
           {tree.length > 0 ? (
             <div className="documentsTreeList">
               {tree.map((node) => (
                 <DocumentTreeItem
                   key={node.document.id}
                   node={node}
+                  documents={documents}
                   workspaceSlug={workspaceSlug}
                   projectSlug={projectSlug}
+                  canEdit={canEdit}
+                  draggedDocumentId={draggedDocumentId}
+                  setDraggedDocumentId={setDraggedDocumentId}
+                  onMoveDocument={moveDocument}
+                  reparentPendingId={reparentDocumentMutation.variables?.documentId ?? null}
                 />
               ))}
             </div>
           ) : (
             <div className="emptyPanel">Документов пока нет.</div>
           )}
+          {reparentDocumentMutation.error ? (
+            <p className="errorText">{getErrorMessage(reparentDocumentMutation.error)}</p>
+          ) : null}
         </div>
 
         <aside className="documentsIndexSummary">
@@ -184,15 +235,26 @@ export function DocumentViewPage() {
             <ArrowLeft size={15} />
             <span>К каталогу</span>
           </Link>
-          {canEdit ? (
-            <Link
-              className="primaryButton compactButton"
-              to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${document.id}/edit`}
-            >
-              <FilePenLine size={15} />
-              <span>Редактировать</span>
-            </Link>
-          ) : null}
+          <div className="rowActions">
+            {canEdit ? (
+              <>
+                <DocumentMoveControl
+                  workspaceSlug={workspaceSlug}
+                  projectSlug={projectSlug}
+                  document={document}
+                  triggerLabel="Move to…"
+                  buttonClassName="secondaryButton compactButton"
+                />
+                <Link
+                  className="primaryButton compactButton"
+                  to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${document.id}/edit`}
+                >
+                  <FilePenLine size={15} />
+                  <span>Редактировать</span>
+                </Link>
+              </>
+            ) : null}
+          </div>
         </div>
 
         <article className="documentPageSurface">
@@ -354,19 +416,62 @@ function DocumentEditorPageShell({
 
 function DocumentTreeItem({
   node,
+  documents,
   workspaceSlug,
   projectSlug,
+  canEdit,
+  draggedDocumentId,
+  setDraggedDocumentId,
+  onMoveDocument,
+  reparentPendingId,
 }: {
   node: DocumentTreeNode;
+  documents: DocumentDetail[];
   workspaceSlug: string;
   projectSlug: string;
+  canEdit: boolean;
+  draggedDocumentId: string | null;
+  setDraggedDocumentId: (documentId: string | null) => void;
+  onMoveDocument: (documentId: string, parentDocumentId: string | null) => void;
+  reparentPendingId: string | null;
 }) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children.length > 0;
+  const blockedParentIds = useMemo(
+    () => new Set([node.document.id, ...collectDescendantIds(documents, node.document.id)]),
+    [documents, node.document.id],
+  );
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const sourceDocumentId = event.dataTransfer.getData('text/document-id') || draggedDocumentId;
+    setDraggedDocumentId(null);
+
+    if (!sourceDocumentId || blockedParentIds.has(sourceDocumentId)) {
+      return;
+    }
+
+    const sourceDocument = documents.find((item) => item.id === sourceDocumentId);
+    if (!sourceDocument || sourceDocument.parent_document_id === node.document.id) {
+      return;
+    }
+
+    onMoveDocument(sourceDocumentId, node.document.id);
+    setExpanded(true);
+  }
 
   return (
     <div className="documentTreeItem">
-      <div className="documentTreeRow" style={{ paddingLeft: `${node.depth * 20}px` }}>
+      <div
+        className={`documentTreeRow${draggedDocumentId === node.document.id ? ' isDragging' : ''}`}
+        style={{ paddingLeft: `${node.depth * 20}px` }}
+        onDragOver={(event) => {
+          if (canEdit) {
+            event.preventDefault();
+          }
+        }}
+        onDrop={canEdit ? handleDrop : undefined}
+      >
         <div className="documentTreeRowMain">
           {hasChildren ? (
             <button
@@ -384,16 +489,39 @@ function DocumentTreeItem({
           <Link
             className="documentTreeLink"
             to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${node.document.id}`}
+            draggable={canEdit}
+            onDragStart={(event) => {
+              if (!canEdit) {
+                return;
+              }
+              event.dataTransfer.setData('text/document-id', node.document.id);
+              setDraggedDocumentId(node.document.id);
+            }}
+            onDragEnd={() => setDraggedDocumentId(null)}
           >
             <strong>{node.document.title}</strong>
             <span>{node.document.slug}</span>
           </Link>
         </div>
 
-        <span className={`statusPill status-${node.document.status}`}>
-          {documentStatusLabel(node.document.status)}
-        </span>
+        <div className="documentTreeRowMeta">
+          <span className={`statusPill status-${node.document.status}`}>
+            {documentStatusLabel(node.document.status)}
+          </span>
+          {canEdit ? (
+            <DocumentMoveControl
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+              document={node.document}
+              triggerLabel="Move"
+              buttonClassName="secondaryButton compactButton documentMoveTrigger"
+              compact
+            />
+          ) : null}
+        </div>
       </div>
+
+      {reparentPendingId === node.document.id ? <p className="mutedText">Сохранение структуры…</p> : null}
 
       {hasChildren && expanded ? (
         <div className="documentTreeChildren">
@@ -401,10 +529,121 @@ function DocumentTreeItem({
             <DocumentTreeItem
               key={child.document.id}
               node={child}
+              documents={documents}
               workspaceSlug={workspaceSlug}
               projectSlug={projectSlug}
+              canEdit={canEdit}
+              draggedDocumentId={draggedDocumentId}
+              setDraggedDocumentId={setDraggedDocumentId}
+              onMoveDocument={onMoveDocument}
+              reparentPendingId={reparentPendingId}
             />
           ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DocumentMoveControl({
+  workspaceSlug,
+  projectSlug,
+  document,
+  triggerLabel,
+  buttonClassName,
+  compact = false,
+}: {
+  workspaceSlug: string;
+  projectSlug: string;
+  document: DocumentDetail;
+  triggerLabel: string;
+  buttonClassName: string;
+  compact?: boolean;
+}) {
+  const documentsQuery = useDocuments(workspaceSlug, projectSlug);
+  const reparentDocumentMutation = useReparentDocument(workspaceSlug, projectSlug);
+  const documents = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data?.items]);
+  const blockedParentIds = useMemo(
+    () => new Set([document.id, ...collectDescendantIds(documents, document.id)]),
+    [document.id, documents],
+  );
+  const parentOptions = useMemo(
+    () => buildParentOptions(documents, blockedParentIds),
+    [documents, blockedParentIds],
+  );
+  const [isOpen, setIsOpen] = useState(false);
+  const [nextParentId, setNextParentId] = useState(document.parent_document_id ?? '');
+
+  function handleMove() {
+    reparentDocumentMutation.mutate(
+      {
+        documentId: document.id,
+        payload: {
+          version: document.version,
+          parent_document_id: nextParentId || null,
+        },
+      },
+      {
+        onSuccess: () => {
+          setIsOpen(false);
+        },
+      },
+    );
+  }
+
+  return (
+    <div className={`documentMoveControl${compact ? ' isCompact' : ''}`}>
+      <button
+        type="button"
+        className={buttonClassName}
+        onClick={() => setIsOpen((value) => !value)}
+      >
+        {triggerLabel}
+      </button>
+
+      {isOpen ? (
+        <div className="documentMovePanel">
+          <label className="field">
+            <span>Новый родитель</span>
+            <select
+              value={nextParentId}
+              onChange={(event) => setNextParentId(event.target.value)}
+              disabled={documentsQuery.isLoading || reparentDocumentMutation.isPending}
+            >
+              <option value="">Корневой документ</option>
+              {parentOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="rowActions">
+            <button
+              type="button"
+              className="primaryButton compactButton"
+              onClick={handleMove}
+              disabled={reparentDocumentMutation.isPending}
+            >
+              Применить
+            </button>
+            <button
+              type="button"
+              className="secondaryButton compactButton"
+              onClick={() => {
+                setNextParentId(document.parent_document_id ?? '');
+                setIsOpen(false);
+              }}
+            >
+              Отмена
+            </button>
+          </div>
+          {documentsQuery.error ? (
+            <p className="errorText">{getErrorMessage(documentsQuery.error)}</p>
+          ) : null}
+          {reparentDocumentMutation.error ? (
+            <p className="errorText">{getErrorMessage(reparentDocumentMutation.error)}</p>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -431,9 +670,20 @@ export function DocumentEditor({
   error: unknown;
 }) {
   const { workspaceSlug = '', projectSlug = '' } = useParams();
+  const documentsQuery = useDocuments(workspaceSlug, projectSlug);
+  const documents = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data?.items]);
+  const blockedParentIds = useMemo(
+    () => new Set(document ? [document.id, ...collectDescendantIds(documents, document.id)] : []),
+    [document, documents],
+  );
+  const parentOptions = useMemo(
+    () => buildParentOptions(documents, blockedParentIds),
+    [documents, blockedParentIds],
+  );
   const [title, setTitle] = useState(document?.title ?? '');
   const [slug, setSlug] = useState(document?.slug ?? '');
   const [bodyMd, setBodyMd] = useState(document?.body_md ?? '');
+  const [parentDocumentId, setParentDocumentId] = useState(document?.parent_document_id ?? '');
   const [status, setStatus] = useState<DocumentStatus>(document?.status ?? DEFAULT_DOCUMENT_STATUS);
   const [slugEdited, setSlugEdited] = useState(Boolean(document?.slug));
   const [version] = useState(document?.version ?? 1);
@@ -450,6 +700,7 @@ export function DocumentEditor({
         slug: slug.trim(),
         title: title.trim(),
         body_md: bodyMd,
+        parent_document_id: parentDocumentId || null,
         status,
       });
       return;
@@ -460,6 +711,7 @@ export function DocumentEditor({
       slug: slug.trim(),
       title: title.trim(),
       body_md: bodyMd,
+      parent_document_id: parentDocumentId || null,
       status,
     });
   }
@@ -558,6 +810,21 @@ export function DocumentEditor({
                     <option value="archived">Архив</option>
                   </select>
                 </label>
+                <label className="field">
+                  <span>Родительский документ</span>
+                  <select
+                    value={parentDocumentId}
+                    onChange={(event) => setParentDocumentId(event.target.value)}
+                    disabled={documentsQuery.isLoading}
+                  >
+                    <option value="">Корневой документ</option>
+                    {parentOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 {mode === 'edit' ? (
                   <label className="field">
                     <span>Version</span>
@@ -565,6 +832,11 @@ export function DocumentEditor({
                   </label>
                 ) : null}
               </div>
+              {documentsQuery.error ? (
+                <p className="warningText">
+                  Не удалось загрузить дерево документов: {getErrorMessage(documentsQuery.error)}
+                </p>
+              ) : null}
             </section>
 
             <section className="documentEditorSection">
@@ -677,6 +949,11 @@ type DocumentTreeNode = {
   children: DocumentTreeNode[];
 };
 
+type ParentOption = {
+  id: string;
+  label: string;
+};
+
 function buildDocumentTree(documents: DocumentDetail[]): DocumentTreeNode[] {
   const childrenByParent = new Map<string, DocumentDetail[]>();
   const roots: DocumentDetail[] = [];
@@ -706,6 +983,56 @@ function buildDocumentTree(documents: DocumentDetail[]): DocumentTreeNode[] {
   });
 
   return roots.map((document) => buildNode(document, 0));
+}
+
+function collectDescendantIds(documents: DocumentDetail[], documentId: string): string[] {
+  const childrenByParent = new Map<string, string[]>();
+
+  for (const document of documents) {
+    if (!document.parent_document_id) {
+      continue;
+    }
+    const list = childrenByParent.get(document.parent_document_id) ?? [];
+    list.push(document.id);
+    childrenByParent.set(document.parent_document_id, list);
+  }
+
+  const descendants: string[] = [];
+  const queue = [...(childrenByParent.get(documentId) ?? [])];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    if (!currentId) {
+      continue;
+    }
+    descendants.push(currentId);
+    queue.push(...(childrenByParent.get(currentId) ?? []));
+  }
+
+  return descendants;
+}
+
+function buildParentOptions(
+  documents: DocumentDetail[],
+  blockedParentIds: Set<string>,
+): ParentOption[] {
+  const tree = buildDocumentTree(documents);
+  const options: ParentOption[] = [];
+
+  const walk = (nodes: DocumentTreeNode[]) => {
+    for (const node of nodes) {
+      if (!blockedParentIds.has(node.document.id)) {
+        options.push({
+          id: node.document.id,
+          label: `${'  '.repeat(node.depth)}${node.document.title}`,
+        });
+      }
+      walk(node.children);
+    }
+  };
+
+  walk(tree);
+  return options;
 }
 
 const markdownComponents: Components = {
