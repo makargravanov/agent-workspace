@@ -1,6 +1,7 @@
 import type {
   AgentCredentialSummary,
   AgentSummary,
+  DocumentDetail,
   NoteDetail,
   ProjectSummary,
   Session,
@@ -120,5 +121,36 @@ export const mockNotes: NoteDetail[] = [
     body_md: 'SQLite used for local/dev profile only. Postgres is the production target.',
     created_at: '2026-03-11T10:00:00Z',
     updated_at: '2026-03-11T10:00:00Z',
+  },
+];
+
+export const mockDocuments: DocumentDetail[] = [
+  {
+    id: '00000000-0000-0000-0000-000000000060',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    project_id: '00000000-0000-0000-0000-000000000020',
+    parent_document_id: null,
+    slug: 'project-guide',
+    title: 'Project Guide',
+    body_format: 'markdown',
+    body_md: '# Project Guide\n\nThis is the primary project reference document.',
+    status: 'published',
+    version: 2,
+    created_at: '2026-03-11T10:00:00Z',
+    updated_at: '2026-05-01T10:00:00Z',
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000061',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    project_id: '00000000-0000-0000-0000-000000000020',
+    parent_document_id: '00000000-0000-0000-0000-000000000060',
+    slug: 'release-notes',
+    title: 'Release Notes',
+    body_format: 'markdown',
+    body_md: '## v1.0\n\n- Initial release',
+    status: 'draft',
+    version: 1,
+    created_at: '2026-04-01T10:00:00Z',
+    updated_at: '2026-04-01T10:00:00Z',
   },
 ];

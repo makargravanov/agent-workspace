@@ -1,4 +1,10 @@
-import type { NoteKind, ProjectStatus, TaskPriority, TaskStatus } from '../../api/types';
+import type {
+  DocumentStatus,
+  NoteKind,
+  ProjectStatus,
+  TaskPriority,
+  TaskStatus,
+} from '../../api/types';
 
 export function slugify(value: string): string {
   return value
@@ -62,5 +68,16 @@ export function projectStatusLabel(status: ProjectStatus): string {
       return 'Архивный';
     default:
       return status;
+  }
+}
+
+export function documentStatusLabel(status: DocumentStatus): string {
+  switch (status) {
+    case 'draft':
+      return 'Черновик';
+    case 'published':
+      return 'Опубликован';
+    case 'archived':
+      return 'Архив';
   }
 }

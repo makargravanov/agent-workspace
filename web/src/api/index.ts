@@ -6,3 +6,4 @@ export * from './agents';
 export * from './workspaces';
 export * from './tasks';
 export * from './notes';
+export * from './documents';

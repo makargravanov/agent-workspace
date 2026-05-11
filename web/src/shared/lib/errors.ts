@@ -29,6 +29,12 @@ const MESSAGE_MAP: Record<string, string> = {
   'failed to list notes': 'Не удалось загрузить заметки.',
   'failed to create note': 'Не удалось создать заметку.',
   'failed to delete note': 'Не удалось удалить заметку.',
+  'failed to list documents': 'Не удалось загрузить документы.',
+  'failed to create document': 'Не удалось создать документ.',
+  'failed to update document': 'Не удалось обновить документ.',
+  'failed to delete document': 'Не удалось удалить документ.',
+  'document version is stale; reload before updating':
+    'Документ был изменён на сервере. Сначала обновите его и повторите сохранение.',
   'authentication is required': 'Требуется авторизация.',
 };
 

@@ -1,8 +1,9 @@
 import { http, HttpResponse } from 'msw';
-import type { NoteDetail } from '../api/types';
+import type { DocumentDetail, NoteDetail } from '../api/types';
 import {
   mockAgents,
   mockAgentCredentials,
+  mockDocuments,
   mockNotes,
   mockProjects,
   mockSession,
@@ -18,6 +19,7 @@ let agentStore = [...mockAgents];
 let credentialStore = [...mockAgentCredentials];
 let taskStore = [...mockTasks];
 let noteStore = [...mockNotes];
+let documentStore = [...mockDocuments];
 
 function listEnvelope<T>(items: T[], requestId = 'mock-req') {
   return { data: { items, next_cursor: null }, meta: { request_id: requestId } };
@@ -310,5 +312,104 @@ export const handlers = [
     };
     noteStore = [created, ...noteStore];
     return HttpResponse.json(itemEnvelope(created), { status: 201 });
+  }),
+
+  http.get(`${BASE}/workspaces/:ws/projects/:proj/documents`, ({ params }) => {
+    const project = projectStore.find((item) => item.slug === params.proj);
+    const items = project ? documentStore.filter((document) => document.project_id === project.id) : [];
+    return HttpResponse.json(listEnvelope(items));
+  }),
+
+  http.get(`${BASE}/workspaces/:ws/projects/:proj/documents/:documentId`, ({ params }) => {
+    const document = documentStore.find((item) => item.id === params.documentId);
+    return document
+      ? HttpResponse.json(itemEnvelope(document))
+      : notFound('document_not_found', 'Document not found');
+  }),
+
+  http.post(`${BASE}/workspaces/:ws/projects/:proj/documents`, async ({ request, params }) => {
+    const project = projectStore.find((item) => item.slug === params.proj);
+    if (!project) {
+      return notFound('project_not_found', 'Project not found');
+    }
+    const body = (await request.json()) as Partial<{
+      slug: string;
+      title: string;
+      body_md: string;
+      parent_document_id: string | null;
+      body_format: string;
+      status: DocumentDetail['status'];
+    }>;
+    const now = new Date().toISOString();
+    const created = {
+      id: crypto.randomUUID(),
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      parent_document_id: body.parent_document_id ?? null,
+      slug: body.slug ?? 'untitled',
+      title: body.title ?? 'Untitled',
+      body_format: body.body_format ?? 'markdown',
+      body_md: body.body_md ?? '',
+      status: body.status ?? 'draft',
+      version: 1,
+      created_at: now,
+      updated_at: now,
+    };
+    documentStore = [created, ...documentStore];
+    return HttpResponse.json(itemEnvelope(created), { status: 201 });
+  }),
+
+  http.patch(`${BASE}/workspaces/:ws/projects/:proj/documents/:documentId`, async ({ request, params }) => {
+    const index = documentStore.findIndex((item) => item.id === params.documentId);
+    if (index === -1) {
+      return notFound('document_not_found', 'Document not found');
+    }
+    const body = (await request.json()) as Partial<{
+      version: number;
+      slug: string;
+      title: string;
+      body_md: string;
+      parent_document_id: string | null;
+      body_format: string;
+      status: DocumentDetail['status'];
+    }>;
+    const current = documentStore[index];
+    if (body.version !== current.version) {
+      return HttpResponse.json(
+        {
+          error: {
+            code: 'conflict',
+            message: 'document version is stale; reload before updating',
+            details: null,
+            request_id: 'mock-req',
+          },
+        },
+        { status: 409 },
+      );
+    }
+    const updated = {
+      ...current,
+      slug: body.slug ?? current.slug,
+      title: body.title ?? current.title,
+      body_md: body.body_md ?? current.body_md,
+      body_format: body.body_format ?? current.body_format,
+      status: body.status ?? current.status,
+      parent_document_id:
+        body.parent_document_id === undefined ? current.parent_document_id : body.parent_document_id,
+      version: current.version + 1,
+      updated_at: new Date().toISOString(),
+    };
+    documentStore = documentStore.map((item, itemIndex) => (itemIndex === index ? updated : item));
+    return HttpResponse.json(itemEnvelope(updated));
+  }),
+
+  http.delete(`${BASE}/workspaces/:ws/projects/:proj/documents/:documentId`, ({ params }) => {
+    documentStore = documentStore.filter((document) => document.id !== params.documentId);
+    documentStore = documentStore.map((document) =>
+      document.parent_document_id === params.documentId
+        ? { ...document, parent_document_id: null }
+        : document,
+    );
+    return new HttpResponse(null, { status: 204 });
   }),
 ];

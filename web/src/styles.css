@@ -450,11 +450,17 @@ textarea:focus {
 }
 
 .directoryPage,
+.documentsPage,
 .notesPage,
 .overviewPage,
 .trackerPage {
   display: grid;
   gap: 14px;
+}
+
+.documentsPage {
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  align-items: start;
 }
 
 .directoryHeader,
@@ -980,6 +986,99 @@ textarea:focus {
   color: #5f564b;
 }
 
+.documentsSidebar,
+.documentsMain,
+.documentPreview,
+.documentEditor {
+  display: grid;
+  gap: 14px;
+}
+
+.documentsTree {
+  display: grid;
+  gap: 8px;
+}
+
+.documentTreeNode {
+  display: grid;
+  gap: 6px;
+}
+
+.documentTreeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+}
+
+.documentTreeRow:hover,
+.documentTreeRow.isActive {
+  border-color: #d6b39f;
+  background: #fbf5ee;
+}
+
+.documentTreeRow div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.documentTreeRow span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.documentMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.documentBodyPreview {
+  display: grid;
+  gap: 10px;
+}
+
+.documentBodyPreview pre {
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: #fffdfa;
+  color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.documentEditorActions {
+  flex-wrap: wrap;
+}
+
+.documentConflict {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.documentConflict p {
+  margin-top: 4px;
+}
+
 .mutedText {
   color: var(--text-muted);
 }
@@ -1015,11 +1114,19 @@ textarea:focus {
     grid-template-columns: 220px minmax(0, 1fr);
   }
 
+  .documentsPage {
+    grid-template-columns: 1fr;
+  }
+
   .metricGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .overviewGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .documentMetaGrid {
     grid-template-columns: 1fr;
   }
 }

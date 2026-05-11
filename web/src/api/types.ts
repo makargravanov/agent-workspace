@@ -125,6 +125,23 @@ export interface NoteDetail {
   updated_at: string;
 }
 
+export type DocumentStatus = 'draft' | 'published' | 'archived';
+
+export interface DocumentDetail {
+  id: string;
+  workspace_id: string;
+  project_id: string;
+  parent_document_id: string | null;
+  slug: string;
+  title: string;
+  body_format: string;
+  body_md: string;
+  status: DocumentStatus;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CreateTaskPayload {
   group_id?: string | null;
   parent_task_id?: string | null;
@@ -157,6 +174,25 @@ export interface CreateNotePayload {
   title?: string | null;
   body_md: string;
   agent_session_id?: string | null;
+}
+
+export interface CreateDocumentPayload {
+  slug: string;
+  title: string;
+  body_md: string;
+  parent_document_id?: string | null;
+  body_format?: string;
+  status?: DocumentStatus;
+}
+
+export interface UpdateDocumentPayload {
+  version: number;
+  slug?: string;
+  title?: string;
+  body_md?: string;
+  parent_document_id?: string | null;
+  body_format?: string;
+  status?: DocumentStatus;
 }
 
 export interface CreateWorkspacePayload {

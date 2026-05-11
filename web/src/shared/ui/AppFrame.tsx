@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   BriefcaseBusiness,
   CheckSquare,
+  FileText,
   FolderKanban,
   KeyRound,
   LayoutDashboard,
@@ -172,6 +173,13 @@ export function AppFrame({ children }: { children: ReactNode }) {
               >
                 <StickyNote size={16} />
                 <span>Заметки</span>
+              </NavLink>
+              <NavLink
+                to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents`}
+                className={({ isActive }) => `topTab${isActive ? ' isActive' : ''}`}
+              >
+                <FileText size={16} />
+                <span>Документы</span>
               </NavLink>
             </nav>
           ) : null}
