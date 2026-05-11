@@ -14,6 +14,7 @@ import {
 import { useProjects } from '../../hooks/useWorkspaces';
 import { useSession } from '../../hooks/useSession';
 import { getErrorMessage } from '../../shared/lib/errors';
+import { normalizeScopePolicy } from '../../shared/lib/scope-policy';
 import { FullPageMessage } from '../../shared/ui/FullPageMessage';
 
 const DEFAULT_SCOPES = [
@@ -106,7 +107,7 @@ export function AgentDetailsPage() {
     setEditLabel(current.label);
     setEditProjectId(current.project_id ?? '');
     setEditExpiresAt(current.expires_at ?? '');
-    setEditScopes(current.scope_policy);
+    setEditScopes(normalizeScopePolicy(current.scope_policy));
   }
 
   function toggleEditScope(scope: string) {
@@ -333,7 +334,7 @@ export function AgentDetailsPage() {
                   <strong>{credential.label}</strong>
                   <span>{credential.secret_prefix}</span>
                 </td>
-                <td>{credential.scope_policy.map(scopeLabel).join(', ')}</td>
+                <td>{normalizeScopePolicy(credential.scope_policy).map(scopeLabel).join(', ')}</td>
                 <td><span className={`statusPill status-${credential.status}`}>{credential.status}</span></td>
                 <td>{credential.project_id ? projectNameById.get(credential.project_id) ?? credential.project_id : 'Workspace-wide'}</td>
                 <td>{credential.expires_at ? new Date(credential.expires_at).toLocaleString() : 'No expiry'}</td>

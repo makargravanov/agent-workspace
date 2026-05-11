@@ -201,7 +201,7 @@ export interface AgentCredentialSummary {
   agent_id: string;
   label: string;
   secret_prefix: string;
-  scope_policy: string[];
+  scope_policy: string[] | string;
   status: CredentialStatus;
   expires_at: string | null;
   created_at: string;
