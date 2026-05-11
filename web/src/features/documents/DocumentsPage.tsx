@@ -63,7 +63,7 @@ type EditorMode = 'write' | 'preview' | 'split';
 
 type CycleInfo = {
   cycleDocumentIds: string[];
-  repairDocumentIds: string[];
+  cycleGroups: string[][];
 };
 
 export function DocumentsIndexPage() {
@@ -137,7 +137,11 @@ export function DocumentsIndexPage() {
     }
 
     const parentDocument = documents.find((item) => item.id === currentDocument.parent_document_id);
-    moveDocument(documentId, parentDocument?.parent_document_id ?? null);
+    const blockedIds = new Set([documentId, ...collectDescendantIds(documents, documentId)]);
+    const candidateParentId = parentDocument?.parent_document_id ?? null;
+    const nextParentId =
+      candidateParentId && !blockedIds.has(candidateParentId) ? candidateParentId : null;
+    moveDocument(documentId, nextParentId);
   }
 
   async function repairCycles() {
@@ -148,13 +152,14 @@ export function DocumentsIndexPage() {
       let latestDocuments = refreshed.data?.items ?? documents;
       const latestCycleInfo = detectCycleInfo(latestDocuments);
 
-      for (const documentId of latestCycleInfo.cycleDocumentIds) {
-        const currentDocument = latestDocuments.find((item) => item.id === documentId);
+      for (const cycleGroup of latestCycleInfo.cycleGroups) {
+        const repairTargetId = chooseCycleRepairTarget(cycleGroup, latestDocuments);
+        const currentDocument = latestDocuments.find((item) => item.id === repairTargetId);
         if (!currentDocument?.parent_document_id) {
           continue;
         }
 
-        const updated = await reparentWithRetry(documentId, null, latestDocuments);
+        const updated = await reparentWithRetry(repairTargetId, null, latestDocuments);
         if (!updated) {
           continue;
         }
@@ -1421,10 +1426,12 @@ function buildDocumentTree(documents: DocumentDetail[]): DocumentTreeNode[] {
 
   const tree = roots.map((document) => buildNode(document, 0, new Set()));
 
-  const fallbackRoots = documents
-    .filter((document) => !visited.has(document.id))
-    .sort(byCreatedAt)
-    .map((document) => buildNode(document, 0, new Set()));
+  const fallbackRoots: DocumentTreeNode[] = [];
+  for (const document of [...documents].sort(byCreatedAt)) {
+    if (!visited.has(document.id)) {
+      fallbackRoots.push(buildNode(document, 0, new Set()));
+    }
+  }
 
   return [...tree, ...fallbackRoots];
 }
@@ -1460,46 +1467,91 @@ function collectDescendantIds(documents: DocumentDetail[], documentId: string): 
 
 function detectCycleInfo(documents: DocumentDetail[]): CycleInfo {
   const documentById = new Map(documents.map((document) => [document.id, document]));
-  const state = new Map<string, 'visiting' | 'visited'>();
+  const indexById = new Map<string, number>();
+  const lowLinkById = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const cycleGroups: string[][] = [];
   const cycleIds = new Set<string>();
-  const repairIds = new Set<string>();
+  let index = 0;
 
-  function visit(documentId: string, path: string[]) {
-    const currentState = state.get(documentId);
+  function strongConnect(documentId: string) {
+    indexById.set(documentId, index);
+    lowLinkById.set(documentId, index);
+    index += 1;
+    stack.push(documentId);
+    onStack.add(documentId);
 
-    if (currentState === 'visited') {
+    const parentId = documentById.get(documentId)?.parent_document_id;
+    if (parentId && documentById.has(parentId)) {
+      if (!indexById.has(parentId)) {
+        strongConnect(parentId);
+        lowLinkById.set(
+          documentId,
+          Math.min(lowLinkById.get(documentId) ?? 0, lowLinkById.get(parentId) ?? 0),
+        );
+      } else if (onStack.has(parentId)) {
+        lowLinkById.set(
+          documentId,
+          Math.min(lowLinkById.get(documentId) ?? 0, indexById.get(parentId) ?? 0),
+        );
+      }
+    }
+
+    if (lowLinkById.get(documentId) !== indexById.get(documentId)) {
       return;
     }
 
-    if (currentState === 'visiting') {
-      const cycleStart = path.indexOf(documentId);
-      const cyclePath = cycleStart >= 0 ? path.slice(cycleStart) : [documentId];
-      for (const id of cyclePath) {
+    const component: string[] = [];
+    while (stack.length > 0) {
+      const currentId = stack.pop();
+      if (!currentId) {
+        break;
+      }
+      onStack.delete(currentId);
+      component.push(currentId);
+      if (currentId === documentId) {
+        break;
+      }
+    }
+
+    const isSelfLoop =
+      component.length === 1 && documentById.get(component[0])?.parent_document_id === component[0];
+    if (component.length > 1 || isSelfLoop) {
+      cycleGroups.push(component);
+      for (const id of component) {
         cycleIds.add(id);
       }
-      repairIds.add(documentId);
-      return;
     }
-
-    state.set(documentId, 'visiting');
-    const document = documentById.get(documentId);
-    const parentId = document?.parent_document_id;
-
-    if (parentId && documentById.has(parentId)) {
-      visit(parentId, [...path, documentId]);
-    }
-
-    state.set(documentId, 'visited');
   }
 
   for (const document of documents) {
-    visit(document.id, []);
+    if (!indexById.has(document.id)) {
+      strongConnect(document.id);
+    }
   }
 
   return {
     cycleDocumentIds: [...cycleIds],
-    repairDocumentIds: [...repairIds],
+    cycleGroups,
   };
+}
+
+function chooseCycleRepairTarget(cycleGroup: string[], documents: DocumentDetail[]): string {
+  const documentById = new Map(documents.map((document) => [document.id, document]));
+  return [...cycleGroup]
+    .sort((leftId, rightId) => {
+      const left = documentById.get(leftId);
+      const right = documentById.get(rightId);
+      const leftTime = left ? new Date(left.updated_at).getTime() : 0;
+      const rightTime = right ? new Date(right.updated_at).getTime() : 0;
+
+      if (leftTime !== rightTime) {
+        return rightTime - leftTime;
+      }
+
+      return leftId.localeCompare(rightId);
+    })[0];
 }
 
 function buildParentOptions(
