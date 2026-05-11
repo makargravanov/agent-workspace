@@ -41,10 +41,10 @@ async fn resolve_workspace(
     workspace_slug: &str,
 ) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_as::<_, (String,)>("SELECT CAST(id AS TEXT) FROM workspaces WHERE slug = $1")
-    .bind(workspace_slug)
-    .fetch_optional(pool)
-    .await
-    .map(|row| row.map(|(id,)| id))
+        .bind(workspace_slug)
+        .fetch_optional(pool)
+        .await
+        .map(|row| row.map(|(id,)| id))
 }
 
 async fn resolve_project(
@@ -307,4 +307,126 @@ async fn search(
             audit_event_id: None,
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    use crate::{
+        app::build_router,
+        db::DatabaseBackend,
+        state::AppState,
+        testing::{
+            any_test_pool, assert_api_error_code, assert_status_with_body,
+            seed_workspace_member_project,
+        },
+    };
+
+    const WS_SLUG: &str = "ops-workspace";
+    const PROJECT_SLUG: &str = "ops-project";
+
+    async fn setup() -> axum::Router {
+        let pool = any_test_pool().await;
+        let scope = seed_workspace_member_project(
+            &pool,
+            WS_SLUG,
+            "Ops Workspace",
+            PROJECT_SLUG,
+            "Ops Project",
+            "test:search-user",
+            "Search User",
+            "owner",
+        )
+        .await;
+
+        sqlx::query(
+            "INSERT INTO tasks (id, workspace_id, project_id, rank_key, title, status, priority)
+             VALUES ($1, $2, $3, 'rank-1', 'Ops task', 'todo', 'high')",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&scope.workspace_id)
+        .bind(scope.project_id.as_deref().unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO documents (id, workspace_id, project_id, slug, title, body_md, body_format, status, version)
+             VALUES ($1, $2, $3, 'ops-doc', 'Ops doc', '# Ops', 'markdown', 'draft', 1)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&scope.workspace_id)
+        .bind(scope.project_id.as_deref().unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        build_router(AppState::new(pool, DatabaseBackend::Sqlite))
+    }
+
+    #[tokio::test]
+    async fn workspace_search_returns_matches_across_entities() {
+        let app = setup().await;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/search?q=ops&workspace_slug={WS_SLUG}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::OK).await;
+        let items = body["data"]["items"].as_array().unwrap();
+        assert!(items
+            .iter()
+            .any(|item| item["kind"].as_str() == Some("task")));
+        assert!(items
+            .iter()
+            .any(|item| item["kind"].as_str() == Some("document")));
+    }
+
+    #[tokio::test]
+    async fn project_filter_narrows_search() {
+        let app = setup().await;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/search?q=ops&workspace_slug={WS_SLUG}&project_slug={PROJECT_SLUG}"
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::OK).await;
+        assert!(body["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["project_id"].is_string() || item["kind"] == "workspace"));
+    }
+
+    #[tokio::test]
+    async fn empty_query_is_rejected() {
+        let app = setup().await;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_api_error_code(&body, "validation_error");
+    }
 }

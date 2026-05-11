@@ -730,4 +730,112 @@ mod tests {
 
         assert!(!storage_dir.join(&asset_id).exists());
     }
+
+    #[tokio::test]
+    async fn create_asset_rejects_invalid_base64() {
+        let (app, _storage_dir, _, _, member_id) = setup().await;
+        let payload = json!({
+            "file_name": "note.txt",
+            "media_type": "text/plain",
+            "content_base64": "not base64!!!",
+        });
+
+        let response = app
+            .oneshot(request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/assets",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG
+                    ))
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, member_id.clone()),
+                Body::from(serde_json::to_vec(&payload).unwrap()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn update_asset_changes_metadata_and_content() {
+        let (app, _storage_dir, _, _, member_id) = setup().await;
+        let created = app
+            .clone()
+            .oneshot(request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/assets",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG
+                    ))
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, member_id.clone()),
+                Body::from(
+                    json!({
+                        "file_name": "note.txt",
+                        "media_type": "text/plain",
+                        "content_base64": STANDARD.encode("hello assets"),
+                    })
+                    .to_string(),
+                ),
+            ))
+            .await
+            .unwrap();
+        let created: serde_json::Value =
+            serde_json::from_slice(&to_bytes(created.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let asset_id = created["data"]["id"].as_str().unwrap().to_string();
+
+        let updated = app
+            .clone()
+            .oneshot(request(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/assets/{}",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG,
+                        asset_id
+                    ))
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, member_id.clone()),
+                Body::from(
+                    json!({
+                        "file_name": "note-v2.txt",
+                        "content_base64": STANDARD.encode("hello assets v2"),
+                    })
+                    .to_string(),
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(updated.status(), StatusCode::OK);
+
+        let fetched = app
+            .clone()
+            .oneshot(request(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/assets/{}",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG,
+                        asset_id
+                    ))
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, member_id.clone()),
+                Body::empty(),
+            ))
+            .await
+            .unwrap();
+        let fetched: serde_json::Value =
+            serde_json::from_slice(&to_bytes(fetched.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(fetched["data"]["file_name"], "note-v2.txt");
+    }
 }

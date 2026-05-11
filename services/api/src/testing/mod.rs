@@ -9,7 +9,12 @@
 
 pub mod fixtures;
 
+use axum::{
+    body::{to_bytes, Body},
+    http::{Request, StatusCode},
+};
 use reqwest::Url;
+use serde_json::Value;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
@@ -110,6 +115,173 @@ pub async fn postgres_test_db() -> Option<PostgresTestDb> {
         admin_url,
         db_name,
     })
+}
+
+#[derive(Debug, Clone)]
+pub struct SeededScope {
+    pub workspace_id: String,
+    pub workspace_slug: String,
+    pub member_id: String,
+    pub project_id: Option<String>,
+    pub project_slug: Option<String>,
+}
+
+async fn test_pool_is_sqlite(pool: &sqlx::AnyPool) -> bool {
+    sqlx::query("SELECT sqlite_version()")
+        .execute(pool)
+        .await
+        .is_ok()
+}
+
+pub async fn seed_workspace_member(
+    pool: &sqlx::AnyPool,
+    workspace_slug: &str,
+    workspace_name: &str,
+    external_subject: &str,
+    display_name: &str,
+    role: &str,
+) -> SeededScope {
+    let workspace_id = Uuid::new_v4().to_string();
+    let member_id = Uuid::new_v4().to_string();
+    let is_sqlite = test_pool_is_sqlite(pool).await;
+
+    let insert_workspace_sql = if is_sqlite {
+        "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3)"
+    } else {
+        "INSERT INTO workspaces (id, slug, name) VALUES (CAST($1 AS UUID), $2, $3)"
+    };
+    sqlx::query(insert_workspace_sql)
+        .bind(&workspace_id)
+        .bind(workspace_slug)
+        .bind(workspace_name)
+        .execute(pool)
+        .await
+        .expect("insert workspace");
+
+    let insert_member_sql = if is_sqlite {
+        "INSERT INTO workspace_members
+         (id, workspace_id, external_subject, display_name, role, status)
+         VALUES ($1, $2, $3, $4, $5, 'active')"
+    } else {
+        "INSERT INTO workspace_members
+         (id, workspace_id, external_subject, display_name, role, status)
+         VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, $5, 'active')"
+    };
+    sqlx::query(insert_member_sql)
+        .bind(&member_id)
+        .bind(&workspace_id)
+        .bind(external_subject)
+        .bind(display_name)
+        .bind(role)
+        .execute(pool)
+        .await
+        .expect("insert workspace member");
+
+    SeededScope {
+        workspace_id,
+        workspace_slug: workspace_slug.to_string(),
+        member_id,
+        project_id: None,
+        project_slug: None,
+    }
+}
+
+pub async fn seed_workspace_member_project(
+    pool: &sqlx::AnyPool,
+    workspace_slug: &str,
+    workspace_name: &str,
+    project_slug: &str,
+    project_name: &str,
+    external_subject: &str,
+    display_name: &str,
+    role: &str,
+) -> SeededScope {
+    let mut scope = seed_workspace_member(
+        pool,
+        workspace_slug,
+        workspace_name,
+        external_subject,
+        display_name,
+        role,
+    )
+    .await;
+    let project_id = Uuid::new_v4().to_string();
+    let is_sqlite = test_pool_is_sqlite(pool).await;
+
+    let insert_project_sql = if is_sqlite {
+        "INSERT INTO projects (id, workspace_id, slug, name, status)
+         VALUES ($1, $2, $3, $4, 'active')"
+    } else {
+        "INSERT INTO projects (id, workspace_id, slug, name, status)
+         VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, 'active')"
+    };
+    sqlx::query(insert_project_sql)
+        .bind(&project_id)
+        .bind(&scope.workspace_id)
+        .bind(project_slug)
+        .bind(project_name)
+        .execute(pool)
+        .await
+        .expect("insert project");
+
+    scope.project_id = Some(project_id);
+    scope.project_slug = Some(project_slug.to_string());
+    scope
+}
+
+pub fn json_request(builder: axum::http::request::Builder, value: &Value) -> Request<Body> {
+    builder
+        .header("content-type", "application/json")
+        .body(Body::from(value.to_string()))
+        .expect("request")
+}
+
+pub async fn json_response(response: axum::response::Response) -> Value {
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    serde_json::from_slice(&bytes).expect("body should be json")
+}
+
+pub async fn assert_status_with_body(
+    response: axum::response::Response,
+    expected: StatusCode,
+) -> Value {
+    let status = response.status();
+    let body = json_response(response).await;
+    assert_eq!(status, expected, "unexpected status {status}; body: {body}");
+    body
+}
+
+pub fn assert_api_error_code(body: &Value, expected_code: &str) {
+    assert_eq!(
+        body["error_code"].as_str(),
+        Some(expected_code),
+        "unexpected error body: {body}"
+    );
+}
+
+pub async fn fetch_audit_snapshot(
+    pool: &sqlx::AnyPool,
+    workspace_id: &str,
+) -> Vec<(String, String, String)> {
+    let is_sqlite = test_pool_is_sqlite(pool).await;
+    let sql = if is_sqlite {
+        "SELECT entity_type, event_type, actor_type
+         FROM audit_events
+         WHERE workspace_id = $1
+         ORDER BY occurred_at DESC"
+    } else {
+        "SELECT entity_type, event_type, actor_type
+         FROM audit_events
+         WHERE workspace_id = CAST($1 AS UUID)
+         ORDER BY occurred_at DESC"
+    };
+    sqlx::query_as(sql)
+        .bind(workspace_id)
+        .fetch_all(pool)
+        .await
+        .expect("fetch audit snapshot")
 }
 
 #[cfg(test)]
@@ -909,6 +1081,398 @@ mod postgres_smoke {
 
         assert!(slugs.contains(&"seed-ws".to_string()));
         assert!(slugs.contains(&"other-ws".to_string()));
+
+        db.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_agents_and_credentials_crud() {
+        let Some(db) = postgres_test_db().await else {
+            eprintln!("skipping postgres smoke test: TEST_DATABASE_URL is not set");
+            return;
+        };
+
+        let (workspace_id, member_id) = seed_member(
+            &db.pool,
+            "pg-agents",
+            "PG Agents",
+            "test:pg-agents",
+            "PG Agents",
+            "owner",
+        )
+        .await;
+
+        let app = build_router(AppState::new(db.pool.clone(), DatabaseBackend::Postgres));
+
+        let create_agent = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/pg-agents/agents")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::from(
+                        json!({ "key": "pg-agent", "display_name": "PG Agent" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_agent.status(), StatusCode::CREATED);
+        let agent_body = body_json(create_agent.into_body()).await;
+        let agent_id = agent_body["data"]["id"].as_str().unwrap().to_string();
+
+        let create_credential = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/workspaces/pg-agents/agents/{agent_id}/credentials"
+                    ))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::from(
+                        json!({
+                            "label": "pg shell",
+                            "scope_policy": ["tasks:read", "tasks:write"]
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_credential.status(), StatusCode::CREATED);
+        let credential_body = body_json(create_credential.into_body()).await;
+        let credential_id = credential_body["data"]["credential"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let fetched = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/pg-agents/agent-credentials/{credential_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(fetched.status(), StatusCode::OK);
+        let fetched_body = body_json(fetched.into_body()).await;
+        assert_eq!(
+            fetched_body["data"]["scope_policy"].as_str(),
+            Some("[\"tasks:read\",\"tasks:write\"]")
+        );
+
+        let updated = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!(
+                        "/api/v1/workspaces/pg-agents/agent-credentials/{credential_id}"
+                    ))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({
+                            "label": "pg shell v2",
+                            "scope_policy": ["tasks:read"],
+                            "status": "revoked"
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(updated.status(), StatusCode::OK);
+
+        let deleted = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/pg-agents/agent-credentials/{credential_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+
+        db.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_integration_connections_crud() {
+        let Some(db) = postgres_test_db().await else {
+            eprintln!("skipping postgres smoke test: TEST_DATABASE_URL is not set");
+            return;
+        };
+
+        let (workspace_id, member_id) = seed_member(
+            &db.pool,
+            "pg-integrations",
+            "PG Integrations",
+            "test:pg-integrations",
+            "PG Integrations",
+            "owner",
+        )
+        .await;
+
+        let app = build_router(AppState::new(db.pool.clone(), DatabaseBackend::Postgres));
+
+        let create_project = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/pg-integrations/projects")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::from(
+                        json!({ "slug": "ops", "name": "Ops" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_project.status(), StatusCode::CREATED);
+        let project_body = body_json(create_project.into_body()).await;
+        let project_id = project_body["data"]["id"].as_str().unwrap().to_string();
+
+        let create_connection = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/pg-integrations/integration-connections")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::from(
+                        json!({
+                            "provider": "github",
+                            "scope_kind": "project",
+                            "project_id": project_id,
+                            "config_json": { "repo": "agent-workspace", "sync": true }
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_connection.status(), StatusCode::CREATED);
+        let connection_body = body_json(create_connection.into_body()).await;
+        let connection_id = connection_body["data"]["id"].as_str().unwrap().to_string();
+
+        let updated = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!(
+                        "/api/v1/workspaces/pg-integrations/integration-connections/{connection_id}"
+                    ))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({
+                            "status": "disabled",
+                            "config_json": { "repo": "agent-workspace", "sync": false }
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(updated.status(), StatusCode::OK);
+
+        let deleted = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/pg-integrations/integration-connections/{connection_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+
+        db.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_activity_read_model_contains_agent_event() {
+        let Some(db) = postgres_test_db().await else {
+            eprintln!("skipping postgres smoke test: TEST_DATABASE_URL is not set");
+            return;
+        };
+
+        let (workspace_id, member_id) = seed_member(
+            &db.pool,
+            "pg-activity",
+            "PG Activity",
+            "test:pg-activity",
+            "PG Activity",
+            "owner",
+        )
+        .await;
+
+        let app = build_router(AppState::new(db.pool.clone(), DatabaseBackend::Postgres));
+        let create_agent = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/pg-activity/agents")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::from(
+                        json!({ "key": "audit-bot", "display_name": "Audit Bot" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_agent.status(), StatusCode::CREATED);
+
+        let activity = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/workspaces/pg-activity/activity")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(activity.status(), StatusCode::OK);
+        let activity_body = body_json(activity.into_body()).await;
+        let snapshot = super::fetch_audit_snapshot(&db.pool, &workspace_id).await;
+        assert!(
+            activity_body["data"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["entity_type"].as_str() == Some("agent")),
+            "activity body: {activity_body}; audit snapshot: {snapshot:?}"
+        );
+
+        db.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_search_indexes_new_entities() {
+        let Some(db) = postgres_test_db().await else {
+            eprintln!("skipping postgres smoke test: TEST_DATABASE_URL is not set");
+            return;
+        };
+
+        let (workspace_id, member_id) = seed_member(
+            &db.pool,
+            "pg-search",
+            "PG Search",
+            "test:pg-search",
+            "PG Search",
+            "owner",
+        )
+        .await;
+
+        let app = build_router(AppState::new(db.pool.clone(), DatabaseBackend::Postgres));
+
+        let create_project = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/pg-search/projects")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::from(
+                        json!({ "slug": "findme", "name": "Find Me" }).to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_project.status(), StatusCode::CREATED);
+
+        let create_document = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/pg-search/projects/findme/documents")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::from(
+                        json!({
+                            "slug": "ops-runbook",
+                            "title": "Ops Runbook",
+                            "body_md": "critical search term"
+                        })
+                        .to_string(),
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(create_document.status(), StatusCode::CREATED);
+
+        let search = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=critical&workspace_slug=pg-search&project_slug=findme")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(search.status(), StatusCode::OK);
+        let search_body = body_json(search.into_body()).await;
+        assert!(
+            search_body["data"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["kind"].as_str() == Some("document")),
+            "search body: {search_body}"
+        );
 
         db.cleanup().await;
     }

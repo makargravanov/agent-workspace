@@ -81,10 +81,10 @@ async fn resolve_workspace(
     workspace_slug: &str,
 ) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_as::<_, (String,)>("SELECT CAST(id AS TEXT) FROM workspaces WHERE slug = $1")
-    .bind(workspace_slug)
-    .fetch_optional(pool)
-    .await
-    .map(|row| row.map(|(id,)| id))
+        .bind(workspace_slug)
+        .fetch_optional(pool)
+        .await
+        .map(|row| row.map(|(id,)| id))
 }
 
 async fn resolve_agent(
@@ -533,4 +533,257 @@ async fn delete_credential(
     .await;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    use crate::{
+        app::build_router,
+        db::DatabaseBackend,
+        testing::{
+            any_test_pool, assert_api_error_code, assert_status_with_body, json_request,
+            seed_workspace_member_project,
+        },
+    };
+
+    const WS_SLUG: &str = "ops-workspace";
+    const PROJECT_SLUG: &str = "ops-project";
+
+    async fn setup() -> (axum::Router, String) {
+        let pool = any_test_pool().await;
+        let scope = seed_workspace_member_project(
+            &pool,
+            WS_SLUG,
+            "Ops Workspace",
+            PROJECT_SLUG,
+            "Ops Project",
+            "test:credential-owner",
+            "Credential Owner",
+            "owner",
+        )
+        .await;
+        let router = build_router(AppState::new(pool, DatabaseBackend::Sqlite));
+        (router, scope.member_id)
+    }
+
+    fn json_req(
+        builder: axum::http::request::Builder,
+        member_id: &str,
+        value: &serde_json::Value,
+    ) -> Request<Body> {
+        json_request(
+            builder
+                .header("x-actor-kind", "human")
+                .header("x-actor-id", member_id),
+            value,
+        )
+    }
+
+    async fn create_agent(app: &axum::Router, member_id: &str) -> String {
+        let response = app
+            .clone()
+            .oneshot(json_req(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents")),
+                member_id,
+                &json!({ "key": "ops-bot", "display_name": "Ops Bot" }),
+            ))
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::CREATED).await;
+        body["data"]["id"].as_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn create_and_get_credential_without_revealing_secret_again() {
+        let (app, member_id) = setup().await;
+        let agent_id = create_agent(&app, &member_id).await;
+
+        let created = app
+            .clone()
+            .oneshot(json_req(
+                Request::builder().method("POST").uri(format!(
+                    "/api/v1/workspaces/{WS_SLUG}/agents/{agent_id}/credentials"
+                )),
+                &member_id,
+                &json!({ "label": "ops shell", "scope_policy": ["tasks:read", "tasks:write"] }),
+            ))
+            .await
+            .unwrap();
+        let created_body = assert_status_with_body(created, StatusCode::CREATED).await;
+        assert!(created_body["data"]["secret"]
+            .as_str()
+            .unwrap()
+            .starts_with("awcred_"));
+        let credential_id = created_body["data"]["credential"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let listed = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{WS_SLUG}/agents/{agent_id}/credentials"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let list_body = assert_status_with_body(listed, StatusCode::OK).await;
+        assert_eq!(list_body["data"]["items"][0]["label"], "ops shell");
+        assert!(list_body["data"]["items"][0].get("secret").is_none());
+
+        let fetched = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{WS_SLUG}/agent-credentials/{credential_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let fetched_body = assert_status_with_body(fetched, StatusCode::OK).await;
+        assert_eq!(fetched_body["data"]["id"], credential_id);
+        assert!(fetched_body["data"].get("secret").is_none());
+    }
+
+    #[tokio::test]
+    async fn create_credential_rejects_unknown_project() {
+        let (app, member_id) = setup().await;
+        let agent_id = create_agent(&app, &member_id).await;
+
+        let response = app
+            .oneshot(json_req(
+                Request::builder().method("POST").uri(format!(
+                    "/api/v1/workspaces/{WS_SLUG}/agents/{agent_id}/credentials"
+                )),
+                &member_id,
+                &json!({
+                    "label": "ops shell",
+                    "project_id": Uuid::new_v4().to_string(),
+                    "scope_policy": ["tasks:read"]
+                }),
+            ))
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::NOT_FOUND).await;
+        assert_api_error_code(&body, "not_found");
+    }
+
+    #[tokio::test]
+    async fn update_credential_changes_label_scopes_and_status() {
+        let (app, member_id) = setup().await;
+        let agent_id = create_agent(&app, &member_id).await;
+        let created = app
+            .clone()
+            .oneshot(json_req(
+                Request::builder().method("POST").uri(format!(
+                    "/api/v1/workspaces/{WS_SLUG}/agents/{agent_id}/credentials"
+                )),
+                &member_id,
+                &json!({ "label": "ops shell", "scope_policy": ["tasks:read"] }),
+            ))
+            .await
+            .unwrap();
+        let created_body = assert_status_with_body(created, StatusCode::CREATED).await;
+        let credential_id = created_body["data"]["credential"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let updated = app
+            .oneshot(json_req(
+                Request::builder().method("PATCH").uri(format!(
+                    "/api/v1/workspaces/{WS_SLUG}/agent-credentials/{credential_id}"
+                )),
+                &member_id,
+                &json!({
+                    "label": "ops shell v2",
+                    "scope_policy": ["tasks:read", "tasks:write"],
+                    "status": "revoked"
+                }),
+            ))
+            .await
+            .unwrap();
+        let updated_body = assert_status_with_body(updated, StatusCode::OK).await;
+        assert_eq!(updated_body["data"]["label"], "ops shell v2");
+        assert_eq!(updated_body["data"]["status"], "revoked");
+        assert_eq!(
+            updated_body["data"]["scope_policy"].as_str(),
+            Some("[\"tasks:read\",\"tasks:write\"]")
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_credential_removes_it() {
+        let (app, member_id) = setup().await;
+        let agent_id = create_agent(&app, &member_id).await;
+        let created = app
+            .clone()
+            .oneshot(json_req(
+                Request::builder().method("POST").uri(format!(
+                    "/api/v1/workspaces/{WS_SLUG}/agents/{agent_id}/credentials"
+                )),
+                &member_id,
+                &json!({ "label": "ops shell", "scope_policy": ["tasks:read"] }),
+            ))
+            .await
+            .unwrap();
+        let created_body = assert_status_with_body(created, StatusCode::CREATED).await;
+        let credential_id = created_body["data"]["credential"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let deleted = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/{WS_SLUG}/agent-credentials/{credential_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+
+        let fetched = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{WS_SLUG}/agent-credentials/{credential_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = assert_status_with_body(fetched, StatusCode::NOT_FOUND).await;
+        assert_api_error_code(&body, "not_found");
+    }
 }

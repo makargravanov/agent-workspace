@@ -1,4 +1,5 @@
 use serde::Serialize;
+use uuid::Uuid;
 
 use super::actor::ActorContext;
 use crate::db::DatabaseBackend;
@@ -125,7 +126,8 @@ pub async fn record_audit(
     let (workspace_id, project_id) = match event.actor.workspace_id.clone() {
         Some(workspace_id) => (workspace_id, event.actor.project_id.clone()),
         None => {
-            let Some((workspace_id, project_id)) = resolve_resource_scope(pool, &event).await? else {
+            let Some((workspace_id, project_id)) = resolve_resource_scope(pool, &event).await?
+            else {
                 return Ok(());
             };
             (workspace_id, project_id)
@@ -137,6 +139,7 @@ pub async fn record_audit(
     } else {
         Some(event.actor.actor_id.clone())
     };
+    let audit_id = Uuid::new_v4().to_string();
     let entity_id = Some(event.resource_id.clone());
     let payload_json = event
         .payload
@@ -148,26 +151,28 @@ pub async fn record_audit(
     let sql = match db_backend {
         DatabaseBackend::Postgres => {
             "INSERT INTO audit_events
-             (workspace_id, project_id, actor_type, actor_id, entity_type, entity_id, event_type, payload_json)
+             (id, workspace_id, project_id, actor_type, actor_id, entity_type, entity_id, event_type, payload_json)
              VALUES (
                 CAST($1 AS UUID),
                 CAST($2 AS UUID),
-                $3,
-                CAST($4 AS UUID),
-                $5,
-                CAST($6 AS UUID),
-                $7,
-                CAST($8 AS JSONB)
+                CAST($3 AS UUID),
+                $4,
+                CAST($5 AS UUID),
+                $6,
+                CAST($7 AS UUID),
+                $8,
+                CAST($9 AS JSONB)
              )"
         }
         DatabaseBackend::Sqlite => {
             "INSERT INTO audit_events
-             (workspace_id, project_id, actor_type, actor_id, entity_type, entity_id, event_type, payload_json)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+             (id, workspace_id, project_id, actor_type, actor_id, entity_type, entity_id, event_type, payload_json)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
         }
     };
 
     sqlx::query(sql)
+        .bind(&audit_id)
         .bind(&workspace_id)
         .bind(project_id.as_deref())
         .bind(match event.actor.actor_kind {

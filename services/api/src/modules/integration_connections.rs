@@ -84,10 +84,10 @@ async fn resolve_workspace(
     workspace_slug: &str,
 ) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_as::<_, (String,)>("SELECT CAST(id AS TEXT) FROM workspaces WHERE slug = $1")
-    .bind(workspace_slug)
-    .fetch_optional(pool)
-    .await
-    .map(|row| row.map(|(id,)| id))
+        .bind(workspace_slug)
+        .fetch_optional(pool)
+        .await
+        .map(|row| row.map(|(id,)| id))
 }
 
 fn validate_provider(provider: &str, request_id: &str) -> Result<(), ApiError> {
@@ -528,4 +528,198 @@ async fn delete_connection(
     .await;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    use crate::{
+        app::build_router,
+        db::DatabaseBackend,
+        testing::{
+            any_test_pool, assert_api_error_code, assert_status_with_body, json_request,
+            seed_workspace_member_project,
+        },
+    };
+
+    const WS_SLUG: &str = "ops-workspace";
+    const PROJECT_SLUG: &str = "ops-project";
+
+    async fn setup() -> (axum::Router, String, String) {
+        let pool = any_test_pool().await;
+        let scope = seed_workspace_member_project(
+            &pool,
+            WS_SLUG,
+            "Ops Workspace",
+            PROJECT_SLUG,
+            "Ops Project",
+            "test:integration-owner",
+            "Integration Owner",
+            "owner",
+        )
+        .await;
+        let project_id = scope.project_id.clone().unwrap();
+        let router = build_router(AppState::new(pool, DatabaseBackend::Sqlite));
+        (router, scope.member_id, project_id)
+    }
+
+    fn json_req(
+        builder: axum::http::request::Builder,
+        member_id: &str,
+        value: &serde_json::Value,
+    ) -> Request<Body> {
+        json_request(
+            builder
+                .header("x-actor-kind", "human")
+                .header("x-actor-id", member_id),
+            value,
+        )
+    }
+
+    #[tokio::test]
+    async fn create_workspace_scoped_connection() {
+        let (app, member_id, _) = setup().await;
+        let response = app
+            .oneshot(json_req(
+                Request::builder().method("POST").uri(format!(
+                    "/api/v1/workspaces/{WS_SLUG}/integration-connections"
+                )),
+                &member_id,
+                &json!({
+                    "provider": "github",
+                    "scope_kind": "workspace",
+                    "config_json": {"repo": "agent-workspace"}
+                }),
+            ))
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::CREATED).await;
+        assert_eq!(body["data"]["scope_kind"], "workspace");
+    }
+
+    #[tokio::test]
+    async fn create_project_scoped_connection() {
+        let (app, member_id, project_id) = setup().await;
+        let response = app
+            .oneshot(json_req(
+                Request::builder().method("POST").uri(format!(
+                    "/api/v1/workspaces/{WS_SLUG}/integration-connections"
+                )),
+                &member_id,
+                &json!({
+                    "provider": "github",
+                    "scope_kind": "project",
+                    "project_id": project_id,
+                    "config_json": {"repo": "agent-workspace"}
+                }),
+            ))
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::CREATED).await;
+        assert_eq!(body["data"]["scope_kind"], "project");
+    }
+
+    #[tokio::test]
+    async fn create_rejects_missing_project_id_for_project_scope() {
+        let (app, member_id, _) = setup().await;
+        let response = app
+            .oneshot(json_req(
+                Request::builder().method("POST").uri(format!(
+                    "/api/v1/workspaces/{WS_SLUG}/integration-connections"
+                )),
+                &member_id,
+                &json!({
+                    "provider": "github",
+                    "scope_kind": "project"
+                }),
+            ))
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_api_error_code(&body, "validation_error");
+    }
+
+    #[tokio::test]
+    async fn create_rejects_unknown_project() {
+        let (app, member_id, _) = setup().await;
+        let response = app
+            .oneshot(json_req(
+                Request::builder().method("POST").uri(format!(
+                    "/api/v1/workspaces/{WS_SLUG}/integration-connections"
+                )),
+                &member_id,
+                &json!({
+                    "provider": "github",
+                    "scope_kind": "project",
+                    "project_id": Uuid::new_v4().to_string()
+                }),
+            ))
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::NOT_FOUND).await;
+        assert_api_error_code(&body, "not_found");
+    }
+
+    #[tokio::test]
+    async fn update_and_delete_connection() {
+        let (app, member_id, _) = setup().await;
+        let created = app
+            .clone()
+            .oneshot(json_req(
+                Request::builder().method("POST").uri(format!(
+                    "/api/v1/workspaces/{WS_SLUG}/integration-connections"
+                )),
+                &member_id,
+                &json!({
+                    "provider": "github",
+                    "scope_kind": "workspace",
+                    "config_json": {"repo": "agent-workspace"}
+                }),
+            ))
+            .await
+            .unwrap();
+        let created_body = assert_status_with_body(created, StatusCode::CREATED).await;
+        let connection_id = created_body["data"]["id"].as_str().unwrap().to_string();
+
+        let updated = app
+            .clone()
+            .oneshot(json_req(
+                Request::builder().method("PATCH").uri(format!(
+                    "/api/v1/workspaces/{WS_SLUG}/integration-connections/{connection_id}"
+                )),
+                &member_id,
+                &json!({
+                    "status": "disabled",
+                    "config_json": {"repo": "agent-workspace", "sync": false}
+                }),
+            ))
+            .await
+            .unwrap();
+        let updated_body = assert_status_with_body(updated, StatusCode::OK).await;
+        assert_eq!(updated_body["data"]["status"], "disabled");
+
+        let deleted = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/{WS_SLUG}/integration-connections/{connection_id}"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+    }
 }

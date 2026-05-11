@@ -48,10 +48,10 @@ async fn resolve_workspace(
     workspace_slug: &str,
 ) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_as::<_, (String,)>("SELECT CAST(id AS TEXT) FROM workspaces WHERE slug = $1")
-    .bind(workspace_slug)
-    .fetch_optional(pool)
-    .await
-    .map(|row| row.map(|(id,)| id))
+        .bind(workspace_slug)
+        .fetch_optional(pool)
+        .await
+        .map(|row| row.map(|(id,)| id))
 }
 
 async fn resolve_project(
@@ -229,4 +229,180 @@ async fn list_project_activity(
             audit_event_id: None,
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use serde_json::json;
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    use crate::{
+        app::build_router,
+        db::DatabaseBackend,
+        state::AppState,
+        testing::{
+            any_test_pool, assert_api_error_code, assert_status_with_body, json_request,
+            seed_workspace_member_project,
+        },
+    };
+
+    const WS_SLUG: &str = "ops-workspace";
+    const PROJECT_SLUG: &str = "ops-project";
+
+    async fn setup(role: &str) -> (axum::Router, String) {
+        let pool = any_test_pool().await;
+        let scope = seed_workspace_member_project(
+            &pool,
+            WS_SLUG,
+            "Ops Workspace",
+            PROJECT_SLUG,
+            "Ops Project",
+            "test:activity-user",
+            "Activity User",
+            role,
+        )
+        .await;
+        let router = build_router(AppState::new(pool, DatabaseBackend::Sqlite));
+        (router, scope.member_id)
+    }
+
+    #[tokio::test]
+    async fn workspace_activity_contains_agent_event() {
+        let (app, member_id) = setup("owner").await;
+        let create = app
+            .clone()
+            .oneshot(json_request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents"))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id),
+                &json!({ "key": "ops-bot", "display_name": "Ops Bot" }),
+            ))
+            .await
+            .unwrap();
+        let _ = assert_status_with_body(create, StatusCode::CREATED).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/activity"))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::OK).await;
+        assert!(body["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["entity_type"].as_str() == Some("agent")));
+    }
+
+    #[tokio::test]
+    async fn project_activity_is_scoped_to_project() {
+        let (app, member_id) = setup("owner").await;
+        let create = app
+            .clone()
+            .oneshot(json_request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/workspaces/{WS_SLUG}/projects/{PROJECT_SLUG}/documents"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id),
+                &json!({
+                    "slug": "runbook",
+                    "title": "Runbook",
+                    "body_md": "# Runbook"
+                }),
+            ))
+            .await
+            .unwrap();
+        let _ = assert_status_with_body(create, StatusCode::CREATED).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{WS_SLUG}/projects/{PROJECT_SLUG}/activity"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::OK).await;
+        assert!(body["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["project_id"].is_string()));
+    }
+
+    #[tokio::test]
+    async fn workspace_activity_paginates() {
+        let (app, member_id) = setup("owner").await;
+        for key in ["ops-bot-a", "ops-bot-b"] {
+            let create = app
+                .clone()
+                .oneshot(json_request(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents"))
+                        .header("x-actor-kind", "human")
+                        .header("x-actor-id", &member_id),
+                    &json!({ "key": key, "display_name": key }),
+                ))
+                .await
+                .unwrap();
+            let _ = assert_status_with_body(create, StatusCode::CREATED).await;
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{WS_SLUG}/activity?per_page=1&page=1"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::OK).await;
+        assert_eq!(body["data"]["items"].as_array().unwrap().len(), 1);
+        assert_eq!(body["data"]["next_cursor"].as_str(), Some("2"));
+    }
+
+    #[tokio::test]
+    async fn non_member_cannot_read_activity() {
+        let (app, _) = setup("owner").await;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/activity"))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", Uuid::new_v4().to_string())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::FORBIDDEN).await;
+        assert_api_error_code(&body, "forbidden");
+    }
 }

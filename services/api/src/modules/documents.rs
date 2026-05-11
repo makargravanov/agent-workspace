@@ -736,4 +736,97 @@ mod tests {
             .unwrap();
         assert_eq!(conflict_resp.status(), StatusCode::CONFLICT);
     }
+
+    #[tokio::test]
+    async fn create_get_and_delete_document() {
+        let (router, member_id) = setup().await;
+        let create_resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/documents")
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::from(
+                        json!({
+                            "slug": "ops-runbook",
+                            "title": "Ops Runbook",
+                            "body_md": "# Runbook"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), StatusCode::CREATED);
+        let created: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(create_resp.into_body(), 1024 * 1024)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let document_id = created["data"]["id"].as_str().unwrap().to_string();
+
+        let get_resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/dev-workspace/projects/main-project/documents/{document_id}"
+                    ))
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(get_resp.status(), StatusCode::OK);
+
+        let delete_resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/dev-workspace/projects/main-project/documents/{document_id}"
+                    ))
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(delete_resp.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn create_document_rejects_empty_title() {
+        let (router, member_id) = setup().await;
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/documents")
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::from(
+                        json!({
+                            "slug": "ops-runbook",
+                            "title": "   ",
+                            "body_md": "# Runbook"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
 }

@@ -570,4 +570,167 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::CREATED);
     }
+
+    #[tokio::test]
+    async fn list_get_update_and_delete_task_group() {
+        let (router, member_id) = setup().await;
+        let created = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/task-groups")
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::from(
+                        json!({
+                            "kind": "epic",
+                            "title": "Foundation",
+                            "description_md": "Group work",
+                            "priority": 5
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let created_body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(created.into_body(), 1024 * 1024)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let group_id = created_body["data"]["id"].as_str().unwrap().to_string();
+
+        let listed = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/task-groups")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(listed.status(), StatusCode::OK);
+
+        let fetched = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/dev-workspace/projects/main-project/task-groups/{group_id}"
+                    ))
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(fetched.status(), StatusCode::OK);
+
+        let updated = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!(
+                        "/api/v1/workspaces/dev-workspace/projects/main-project/task-groups/{group_id}"
+                    ))
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::from(
+                        json!({
+                            "title": "Foundation v2",
+                            "status": "done",
+                            "priority": 8
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let updated_body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(updated.into_body(), 1024 * 1024)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(updated_body["data"]["title"], "Foundation v2");
+        assert_eq!(updated_body["data"]["status"], "done");
+
+        let deleted = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/dev-workspace/projects/main-project/task-groups/{group_id}"
+                    ))
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn create_task_group_rejects_invalid_kind() {
+        let (router, member_id) = setup().await;
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/task-groups")
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::from(
+                        json!({
+                            "kind": "story",
+                            "title": "Foundation"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn create_task_group_rejects_empty_title() {
+        let (router, member_id) = setup().await;
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/task-groups")
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::from(
+                        json!({
+                            "kind": "epic",
+                            "title": "   "
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
 }

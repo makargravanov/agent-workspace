@@ -68,10 +68,10 @@ async fn resolve_workspace(
     workspace_slug: &str,
 ) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_as::<_, (String,)>("SELECT CAST(id AS TEXT) FROM workspaces WHERE slug = $1")
-    .bind(workspace_slug)
-    .fetch_optional(pool)
-    .await
-    .map(|row| row.map(|(id,)| id))
+        .bind(workspace_slug)
+        .fetch_optional(pool)
+        .await
+        .map(|row| row.map(|(id,)| id))
 }
 
 fn validate_key(value: &str, request_id: &str) -> Result<(), ApiError> {
@@ -463,4 +463,222 @@ async fn delete_agent(
     .await;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    use crate::{
+        app::build_router,
+        db::DatabaseBackend,
+        testing::{
+            any_test_pool, assert_api_error_code, assert_status_with_body, json_request,
+            seed_workspace_member,
+        },
+    };
+
+    const WS_SLUG: &str = "ops-workspace";
+    const WS_NAME: &str = "Ops Workspace";
+
+    async fn setup(role: &str) -> (axum::Router, String) {
+        let pool = any_test_pool().await;
+        let scope = seed_workspace_member(
+            &pool,
+            WS_SLUG,
+            WS_NAME,
+            "test:agent-owner",
+            "Agent Owner",
+            role,
+        )
+        .await;
+        let router = build_router(AppState::new(pool, DatabaseBackend::Sqlite));
+        (router, scope.member_id)
+    }
+
+    fn request(
+        builder: axum::http::request::Builder,
+        member_id: &str,
+        body: &serde_json::Value,
+    ) -> Request<Body> {
+        json_request(
+            builder
+                .header("x-actor-kind", "human")
+                .header("x-actor-id", member_id),
+            body,
+        )
+    }
+
+    #[tokio::test]
+    async fn create_and_list_agents() {
+        let (app, member_id) = setup("owner").await;
+        let created = app
+            .clone()
+            .oneshot(request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents")),
+                &member_id,
+                &json!({ "key": "ops-bot", "display_name": "Ops Bot" }),
+            ))
+            .await
+            .unwrap();
+        let created_body = assert_status_with_body(created, StatusCode::CREATED).await;
+        assert_eq!(created_body["data"]["key"], "ops-bot");
+
+        let listed = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents"))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let list_body = assert_status_with_body(listed, StatusCode::OK).await;
+        assert_eq!(list_body["data"]["items"].as_array().unwrap().len(), 1);
+        assert_eq!(list_body["data"]["items"][0]["display_name"], "Ops Bot");
+    }
+
+    #[tokio::test]
+    async fn get_unknown_agent_returns_404() {
+        let (app, member_id) = setup("owner").await;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{WS_SLUG}/agents/{}",
+                        Uuid::new_v4()
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::NOT_FOUND).await;
+        assert_api_error_code(&body, "not_found");
+    }
+
+    #[tokio::test]
+    async fn create_rejects_invalid_key() {
+        let (app, member_id) = setup("owner").await;
+        let response = app
+            .oneshot(request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents")),
+                &member_id,
+                &json!({ "key": "Bad Key", "display_name": "Ops Bot" }),
+            ))
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_api_error_code(&body, "validation_error");
+    }
+
+    #[tokio::test]
+    async fn update_changes_display_name_and_status() {
+        let (app, member_id) = setup("owner").await;
+        let created = app
+            .clone()
+            .oneshot(request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents")),
+                &member_id,
+                &json!({ "key": "ops-bot", "display_name": "Ops Bot" }),
+            ))
+            .await
+            .unwrap();
+        let created_body = assert_status_with_body(created, StatusCode::CREATED).await;
+        let agent_id = created_body["data"]["id"].as_str().unwrap().to_string();
+
+        let updated = app
+            .oneshot(request(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents/{agent_id}")),
+                &member_id,
+                &json!({ "display_name": "Ops Bot v2", "status": "disabled" }),
+            ))
+            .await
+            .unwrap();
+        let updated_body = assert_status_with_body(updated, StatusCode::OK).await;
+        assert_eq!(updated_body["data"]["display_name"], "Ops Bot v2");
+        assert_eq!(updated_body["data"]["status"], "disabled");
+    }
+
+    #[tokio::test]
+    async fn delete_removes_agent() {
+        let (app, member_id) = setup("owner").await;
+        let created = app
+            .clone()
+            .oneshot(request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents")),
+                &member_id,
+                &json!({ "key": "ops-bot", "display_name": "Ops Bot" }),
+            ))
+            .await
+            .unwrap();
+        let created_body = assert_status_with_body(created, StatusCode::CREATED).await;
+        let agent_id = created_body["data"]["id"].as_str().unwrap().to_string();
+
+        let deleted = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents/{agent_id}"))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+
+        let fetched = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents/{agent_id}"))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = assert_status_with_body(fetched, StatusCode::NOT_FOUND).await;
+        assert_api_error_code(&body, "not_found");
+    }
+
+    #[tokio::test]
+    async fn viewer_cannot_create_agent() {
+        let (app, member_id) = setup("viewer").await;
+        let response = app
+            .oneshot(request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/workspaces/{WS_SLUG}/agents")),
+                &member_id,
+                &json!({ "key": "ops-bot", "display_name": "Ops Bot" }),
+            ))
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::FORBIDDEN).await;
+        assert_api_error_code(&body, "forbidden");
+    }
 }
