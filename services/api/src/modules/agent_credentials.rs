@@ -542,7 +542,7 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
-    use serde_json::json;
+    use serde_json::{json, Value};
     use tower::ServiceExt;
 
     use crate::{
@@ -601,6 +601,12 @@ mod tests {
             .unwrap();
         let body = assert_status_with_body(response, StatusCode::CREATED).await;
         body["data"]["id"].as_str().unwrap().to_string()
+    }
+
+    fn assert_scope_policy_json(value: &Value, expected: &[&str]) {
+        let parsed: Value = serde_json::from_str(value.as_str().expect("scope policy string"))
+            .expect("scope policy should be valid json");
+        assert_eq!(parsed, json!(expected));
     }
 
     #[tokio::test]
@@ -726,10 +732,7 @@ mod tests {
         let updated_body = assert_status_with_body(updated, StatusCode::OK).await;
         assert_eq!(updated_body["data"]["label"], "ops shell v2");
         assert_eq!(updated_body["data"]["status"], "revoked");
-        assert_eq!(
-            updated_body["data"]["scope_policy"].as_str(),
-            Some("[\"tasks:read\",\"tasks:write\"]")
-        );
+        assert_scope_policy_json(&updated_body["data"]["scope_policy"], &["tasks:read", "tasks:write"]);
     }
 
     #[tokio::test]

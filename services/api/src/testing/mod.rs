@@ -446,6 +446,12 @@ mod postgres_smoke {
         serde_json::from_slice(&bytes).expect("body should be json")
     }
 
+    fn assert_scope_policy_json(value: &Value, expected: &[&str]) {
+        let parsed: Value = serde_json::from_str(value.as_str().expect("scope policy string"))
+            .expect("scope policy should be valid json");
+        assert_eq!(parsed, json!(expected));
+    }
+
     async fn seed_member(
         pool: &sqlx::AnyPool,
         workspace_slug: &str,
@@ -1171,9 +1177,9 @@ mod postgres_smoke {
             .expect("response");
         assert_eq!(fetched.status(), StatusCode::OK);
         let fetched_body = body_json(fetched.into_body()).await;
-        assert_eq!(
-            fetched_body["data"]["scope_policy"].as_str(),
-            Some("[\"tasks:read\",\"tasks:write\"]")
+        assert_scope_policy_json(
+            &fetched_body["data"]["scope_policy"],
+            &["tasks:read", "tasks:write"],
         );
 
         let updated = app
