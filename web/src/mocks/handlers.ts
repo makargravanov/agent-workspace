@@ -154,7 +154,14 @@ export const handlers = [
   }),
 
   http.post(`${BASE}/workspaces/:workspaceSlug/agents/:agentId/credentials`, async ({ request, params }) => {
-    const body = (await request.json()) as { label: string; project_id?: string | null; scopes: string[]; expires_at?: string | null };
+    const body = (await request.json()) as {
+      label: string;
+      project_id?: string | null;
+      scopes?: string[];
+      scope_policy?: string[];
+      expires_at?: string | null;
+    };
+    const scopePolicy = body.scope_policy ?? body.scopes ?? [];
     const now = new Date().toISOString();
     const credential = {
       id: crypto.randomUUID(),
@@ -163,7 +170,7 @@ export const handlers = [
       agent_id: params.agentId as string,
       label: body.label,
       secret_prefix: 'awsk_',
-      scope_policy: body.scopes,
+      scope_policy: scopePolicy,
       status: 'active' as const,
       expires_at: body.expires_at ?? null,
       created_at: now,
@@ -181,12 +188,20 @@ export const handlers = [
   http.patch(`${BASE}/workspaces/:workspaceSlug/agent-credentials/:credentialId`, async ({ request, params }) => {
     const index = credentialStore.findIndex((item) => item.id === params.credentialId);
     if (index === -1) return notFound('agent_credential_not_found', 'Credential not found');
-    const body = (await request.json()) as Partial<{ label: string; project_id: string | null; scopes: string[]; status: 'active' | 'revoked'; expires_at: string | null }>;
+    const body = (await request.json()) as Partial<{
+      label: string;
+      project_id: string | null;
+      scopes: string[];
+      scope_policy: string[];
+      status: 'active' | 'revoked';
+      expires_at: string | null;
+    }>;
+    const scopePolicy = body.scope_policy ?? body.scopes;
     const updated = {
       ...credentialStore[index],
       label: body.label ?? credentialStore[index].label,
       project_id: body.project_id ?? credentialStore[index].project_id,
-      scope_policy: body.scopes ?? credentialStore[index].scope_policy,
+      scope_policy: scopePolicy ?? credentialStore[index].scope_policy,
       status: body.status ?? credentialStore[index].status,
       expires_at: body.expires_at ?? credentialStore[index].expires_at,
       updated_at: new Date().toISOString(),

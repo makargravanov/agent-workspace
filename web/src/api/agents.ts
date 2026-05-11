@@ -12,6 +12,21 @@ import type {
   UpdateAgentPayload,
 } from './types';
 
+type CreateAgentCredentialRequest = {
+  label: string;
+  project_id: string | null;
+  scope_policy: string[];
+  expires_at: string | null;
+};
+
+type UpdateAgentCredentialRequest = {
+  label?: string;
+  project_id?: string | null;
+  scope_policy?: string[];
+  status?: 'active' | 'revoked';
+  expires_at?: string | null;
+};
+
 export async function listAgents(
   workspaceSlug: string,
   pagination?: PaginationParams,
@@ -93,9 +108,15 @@ export async function createAgentCredential(
   payload: CreateAgentCredentialPayload,
   opts?: RequestOptions,
 ): Promise<CreatedAgentCredential> {
-  const resp = await apiPost<CreateAgentCredentialPayload, ApiResponse<CreatedAgentCredential>>(
+  const body = {
+    label: payload.label,
+    project_id: payload.project_id ?? null,
+    scope_policy: payload.scopes,
+    expires_at: payload.expires_at ?? null,
+  };
+  const resp = await apiPost<CreateAgentCredentialRequest, ApiResponse<CreatedAgentCredential>>(
     `/workspaces/${workspaceSlug}/agents/${agentId}/credentials`,
-    payload,
+    body,
     opts,
   );
   return resp.data;
@@ -120,9 +141,16 @@ export async function updateAgentCredential(
   payload: UpdateAgentCredentialPayload,
   opts?: RequestOptions,
 ): Promise<AgentCredentialSummary> {
-  const resp = await apiPatch<UpdateAgentCredentialPayload, ApiResponse<AgentCredentialSummary>>(
+  const body = {
+    label: payload.label,
+    project_id: payload.project_id ?? null,
+    scope_policy: payload.scopes,
+    status: payload.status,
+    expires_at: payload.expires_at ?? null,
+  };
+  const resp = await apiPatch<UpdateAgentCredentialRequest, ApiResponse<AgentCredentialSummary>>(
     `/workspaces/${workspaceSlug}/agent-credentials/${credentialId}`,
-    payload,
+    body,
     opts,
   );
   return resp.data;
