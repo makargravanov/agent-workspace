@@ -458,9 +458,155 @@ textarea:focus {
   gap: 14px;
 }
 
+.documentsHubPage,
+.documentViewPage,
+.documentEditorPage {
+  display: grid;
+  gap: 16px;
+}
+
 .documentsPage {
   grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
   align-items: start;
+}
+
+.documentsEyebrow {
+  color: #7c6f61;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.documentLibraryHero,
+.documentEditorPageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid #d8d8d8;
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%);
+  box-shadow: 0 6px 20px rgba(9, 30, 66, 0.05);
+}
+
+.documentsHubLayout {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.documentsSidebarCard,
+.documentCatalogCard {
+  border: 1px solid #d8d8d8;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 6px 20px rgba(9, 30, 66, 0.05);
+}
+
+.documentsSidebarCard {
+  padding: 14px;
+}
+
+.documentsCatalog {
+  display: grid;
+  gap: 12px;
+}
+
+.documentCatalogCard {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+}
+
+.documentCatalogMeta,
+.documentPageMetaLine,
+.documentPageToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.documentCatalogMeta,
+.documentPageMetaLine {
+  color: #6b778c;
+  font-size: 0.84rem;
+}
+
+.documentCatalogBody {
+  display: grid;
+  gap: 10px;
+}
+
+.documentCatalogExcerpt {
+  color: #42526e;
+  line-height: 1.6;
+}
+
+.documentViewPage {
+  justify-items: center;
+}
+
+.documentPageToolbar {
+  width: min(1080px, 100%);
+  justify-content: space-between;
+}
+
+.documentPageCanvas {
+  width: min(1080px, 100%);
+  padding: 28px 36px 36px;
+  border: 1px solid #d8d8d8;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 10px 28px rgba(9, 30, 66, 0.08);
+}
+
+.documentPageCanvasPreview {
+  width: 100%;
+  min-height: 100%;
+  padding: 22px 24px 28px;
+  box-shadow: none;
+}
+
+.documentPageHeader {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #ebecf0;
+}
+
+.documentPageHeaderMain {
+  display: grid;
+  gap: 8px;
+}
+
+.documentPageHeaderMain h2 {
+  font-size: 2rem;
+  line-height: 1.15;
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-weight: 700;
+  color: #172b4d;
+}
+
+.documentPageContent {
+  max-width: 760px;
+  margin-top: 24px;
+}
+
+.documentPageContent .markdownPreview {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.documentEditorPageHeader {
+  display: grid;
+  gap: 8px;
 }
 
 .directoryHeader,
@@ -1052,16 +1198,206 @@ textarea:focus {
   gap: 10px;
 }
 
-.documentBodyPreview pre {
-  overflow: auto;
-  margin: 0;
+.documentEditorShell {
+  gap: 16px;
+}
+
+.documentEditorLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.documentEditorPane {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.documentEditorFormPane,
+.documentEditorPreviewPane {
   padding: 12px;
   border: 1px solid var(--border-soft);
   border-radius: 6px;
-  background: #fffdfa;
-  color: var(--text-main);
-  white-space: pre-wrap;
-  word-break: break-word;
+  background: rgba(255, 253, 250, 0.72);
+}
+
+.documentEditorPreviewPane {
+  position: sticky;
+  top: 84px;
+}
+
+.documentEditorTextarea {
+  min-height: 56vh;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  line-height: 1.55;
+}
+
+.documentPreviewMeta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.documentPreviewMeta > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-panel);
+}
+
+.markdownPreview {
+  display: grid;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid #ebecf0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172b4d;
+}
+
+.markdownPreview > :first-child {
+  margin-top: 0;
+}
+
+.markdownPreview > :last-child {
+  margin-bottom: 0;
+}
+
+.markdownHeading {
+  margin: 0;
+  font-family: "Segoe UI", "IBM Plex Sans", sans-serif;
+  line-height: 1.25;
+  color: #172b4d;
+}
+
+.markdownHeading1 {
+  font-size: 2rem;
+}
+
+.markdownHeading2 {
+  font-size: 1.55rem;
+}
+
+.markdownHeading3 {
+  font-size: 1.2rem;
+}
+
+.markdownParagraph {
+  margin: 0;
+  color: #172b4d;
+  line-height: 1.75;
+}
+
+.markdownList {
+  margin: 0;
+  padding-left: 1.5rem;
+  color: #172b4d;
+  line-height: 1.7;
+}
+
+.markdownList li + li {
+  margin-top: 0.45rem;
+}
+
+.markdownOrderedList {
+  padding-left: 1.65rem;
+}
+
+.markdownQuote {
+  margin: 0;
+  padding: 10px 16px;
+  border-left: 3px solid #dfe1e6;
+  border-radius: 0 6px 6px 0;
+  background: #f7f8f9;
+  color: #344563;
+}
+
+.markdownQuote p {
+  margin: 0;
+}
+
+.markdownQuote p + p {
+  margin-top: 0.45rem;
+}
+
+.markdownDivider {
+  width: 100%;
+  margin: 2px 0;
+  border: 0;
+  border-top: 1px solid #ebecf0;
+}
+
+.markdownCodeBlock {
+  overflow: auto;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid #ebecf0;
+  border-radius: 8px;
+  background: #f7f8fa;
+  color: #172b4d;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.markdownCodeBlock > code {
+  display: block;
+}
+
+.markdownCodeBlock .hljs {
+  background: transparent;
+}
+
+.markdownCodeBlock .markdownInlineCode {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+
+.markdownInlineCode {
+  padding: 0.12rem 0.36rem;
+  border: 1px solid #dfe1e6;
+  border-radius: 4px;
+  background: #f4f5f7;
+  color: #bf2600;
+  font-size: 0.92em;
+}
+
+.markdownPreview a {
+  color: #0052cc;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.markdownTableWrap {
+  overflow: auto;
+}
+
+.markdownTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.93rem;
+}
+
+.markdownTableHeader,
+.markdownTableCell {
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdownTableHeader {
+  background: #f4f5f7;
+  color: #172b4d;
 }
 
 .documentEditorActions {
@@ -1118,6 +1454,10 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
+  .documentsHubLayout {
+    grid-template-columns: 1fr;
+  }
+
   .metricGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1128,6 +1468,22 @@ textarea:focus {
 
   .documentMetaGrid {
     grid-template-columns: 1fr;
+  }
+
+  .documentEditorLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .documentEditorPreviewPane {
+    position: static;
+  }
+
+  .documentPreviewMeta {
+    grid-template-columns: 1fr;
+  }
+
+  .documentPageCanvas {
+    padding: 24px 22px 28px;
   }
 }
 

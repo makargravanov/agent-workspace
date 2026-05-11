@@ -3,7 +3,12 @@ import { LoginPage } from '../features/auth/LoginPage';
 import { RootRedirect, RequireAuth } from '../features/auth/RequireAuth';
 import { AgentDetailsPage } from '../features/agents/AgentDetailsPage';
 import { AgentsPage } from '../features/agents/AgentsPage';
-import { DocumentsPage } from '../features/documents/DocumentsPage';
+import {
+  CreateDocumentPage,
+  DocumentsIndexPage,
+  DocumentViewPage,
+  EditDocumentPage,
+} from '../features/documents/DocumentsPage';
 import { ProjectOverviewPage } from '../features/projects/ProjectOverviewPage';
 import { ProjectRouteLayout } from '../features/projects/ProjectRouteLayout';
 import { WorkspacePage } from '../features/projects/WorkspacePage';
@@ -36,8 +41,10 @@ export function AppRouter() {
           <Route path="/workspaces/:workspaceSlug/projects/:projectSlug" element={<ProjectRouteLayout />}>
             <Route index element={<ProjectOverviewPage />} />
             <Route path="tasks" element={<TasksPage />} />
-            <Route path="documents" element={<DocumentsPage />} />
-            <Route path="documents/:documentId" element={<DocumentsPage />} />
+            <Route path="documents" element={<DocumentsIndexPage />} />
+            <Route path="documents/new" element={<CreateDocumentPage />} />
+            <Route path="documents/:documentId" element={<DocumentViewPage />} />
+            <Route path="documents/:documentId/edit" element={<EditDocumentPage />} />
             <Route path="notes" element={<NotesPage />} />
           </Route>
         </Route>
