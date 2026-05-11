@@ -1,4 +1,14 @@
-import { ArrowLeft, Eye, FilePenLine, Plus, RefreshCcw, Save, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  FilePenLine,
+  Plus,
+  RefreshCcw,
+  Save,
+  Trash2,
+} from 'lucide-react';
 import type { FormEvent, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -34,6 +44,7 @@ export function DocumentsIndexPage() {
   const canEdit = canEditDocuments(sessionQuery.data?.actor?.role);
   const documents = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data?.items]);
   const tree = useMemo(() => buildDocumentTree(documents), [documents]);
+  const rootCount = tree.length;
 
   if (documentsQuery.isLoading) {
     return <FullPageMessage title="Загрузка документов" embedded />;
@@ -50,19 +61,19 @@ export function DocumentsIndexPage() {
   }
 
   return (
-    <section className="documentsHubPage">
-      <section className="documentLibraryHero">
-        <div>
-          <p className="documentsEyebrow">Knowledge Base</p>
+    <section className="documentsIndexPage">
+      <header className="documentsSectionHeader">
+        <div className="documentsSectionTitle">
+          <p className="documentsEyebrow">Knowledge base</p>
           <h2>Документы проекта</h2>
           <p className="mutedText">
-            Страницы знаний, спецификации, runbook&apos;и и справочные материалы проекта.
+            Спецификации, runbook&apos;и и справочные страницы в иерархии проекта.
           </p>
         </div>
         {canEdit ? (
           <button
             type="button"
-            className="primaryButton"
+            className="primaryButton compactButton"
             onClick={() =>
               navigate(`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/new`)
             }
@@ -71,69 +82,70 @@ export function DocumentsIndexPage() {
             <span>Создать документ</span>
           </button>
         ) : null}
-      </section>
+      </header>
 
-      <section className="documentsHubLayout">
-        <aside className="documentsSidebar documentsSidebarCard">
-          <div className="panelHeader">
+      <section className="documentsIndexLayout">
+        <div className="documentsTreePane">
+          <div className="documentsPaneHeader">
             <h3>Дерево документов</h3>
             <span className="mutedText">{documents.length}</span>
           </div>
-          <div className="documentsTree">
-            {tree.map((item) => (
-              <DocumentTreeLink
-                key={item.document.id}
-                node={item}
-                workspaceSlug={workspaceSlug}
-                projectSlug={projectSlug}
-              />
-            ))}
-          </div>
-          {documents.length === 0 ? <div className="emptyPanel">Документов пока нет</div> : null}
-        </aside>
 
-        <section className="documentsCatalog">
-          {documents.map((document) => (
-            <article key={document.id} className="documentCatalogCard">
-              <div className="documentCatalogMeta">
-                <span className={`statusPill status-${document.status}`}>
-                  {documentStatusLabel(document.status)}
-                </span>
-                <span className="mutedText">{formatDateTime(document.updated_at)}</span>
-              </div>
-              <div className="documentCatalogBody">
-                <div>
-                  <h3>{document.title}</h3>
-                  <p className="mutedText">{document.slug}</p>
-                </div>
-                <p className="documentCatalogExcerpt">{summarizeDocument(document.body_md)}</p>
-              </div>
-              <div className="rowActions">
+          {tree.length > 0 ? (
+            <div className="documentsTreeList">
+              {tree.map((node) => (
+                <DocumentTreeItem
+                  key={node.document.id}
+                  node={node}
+                  workspaceSlug={workspaceSlug}
+                  projectSlug={projectSlug}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="emptyPanel">Документов пока нет.</div>
+          )}
+        </div>
+
+        <aside className="documentsIndexSummary">
+          <div className="documentsPaneHeader">
+            <h3>Каталог</h3>
+          </div>
+          <dl className="documentsFactList">
+            <div>
+              <dt>Всего документов</dt>
+              <dd>{documents.length}</dd>
+            </div>
+            <div>
+              <dt>Корневых страниц</dt>
+              <dd>{rootCount}</dd>
+            </div>
+            <div>
+              <dt>Последнее обновление</dt>
+              <dd>{documents[0] ? formatDateTime(documents[0].updated_at) : '—'}</dd>
+            </div>
+          </dl>
+
+          {documents.length > 0 ? (
+            <div className="documentsFlatList">
+              {documents.slice(0, 6).map((document) => (
                 <Link
-                  className="secondaryButton compactButton"
+                  key={document.id}
+                  className="documentsFlatRow"
                   to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${document.id}`}
                 >
-                  <Eye size={15} />
-                  <span>Открыть</span>
+                  <div>
+                    <strong>{document.title}</strong>
+                    <span>{document.slug}</span>
+                  </div>
+                  <span className={`statusPill status-${document.status}`}>
+                    {documentStatusLabel(document.status)}
+                  </span>
                 </Link>
-                {canEdit ? (
-                  <Link
-                    className="secondaryButton compactButton"
-                    to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${document.id}/edit`}
-                  >
-                    <FilePenLine size={15} />
-                    <span>Редактировать</span>
-                  </Link>
-                ) : null}
-              </div>
-            </article>
-          ))}
-          {documents.length === 0 ? (
-            <div className="emptyPanel">
-              База знаний ещё пустая. Создайте первую страницу для спецификации или справки.
+              ))}
             </div>
           ) : null}
-        </section>
+        </aside>
       </section>
     </section>
   );
@@ -163,50 +175,54 @@ export function DocumentViewPage() {
 
   return (
     <section className="documentViewPage">
-      <div className="documentPageToolbar">
-        <Link
-          className="secondaryButton compactButton"
-          to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents`}
-        >
-          <ArrowLeft size={15} />
-          <span>К списку</span>
-        </Link>
-        {canEdit ? (
+      <div className="documentPageFrame">
+        <div className="documentPageToolbar">
           <Link
-            className="primaryButton compactButton"
-            to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${document.id}/edit`}
+            className="secondaryButton compactButton"
+            to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents`}
           >
-            <FilePenLine size={15} />
-            <span>Редактировать</span>
+            <ArrowLeft size={15} />
+            <span>К каталогу</span>
           </Link>
-        ) : null}
-      </div>
+          {canEdit ? (
+            <Link
+              className="primaryButton compactButton"
+              to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${document.id}/edit`}
+            >
+              <FilePenLine size={15} />
+              <span>Редактировать</span>
+            </Link>
+          ) : null}
+        </div>
 
-      <article className="documentPageCanvas">
-        <header className="documentPageHeader">
-          <div className="documentPageHeaderMain">
-            <p className="documentsEyebrow">{document.slug}</p>
-            <h2>{document.title}</h2>
-            <div className="documentPageMetaLine">
-              <span className={`statusPill status-${document.status}`}>
-                {documentStatusLabel(document.status)}
-              </span>
-              <span>Обновлён {formatDateTime(document.updated_at)}</span>
-              <span>Версия {document.version}</span>
+        <article className="documentPageSurface">
+          <header className="documentPageHeader">
+            <div className="documentPageHeaderMain">
+              <p className="documentsEyebrow">{document.slug}</p>
+              <h2>{document.title}</h2>
+              <div className="documentPageMetaLine">
+                <span className={`statusPill status-${document.status}`}>
+                  {documentStatusLabel(document.status)}
+                </span>
+                <span>Обновлён {formatDateTime(document.updated_at)}</span>
+                <span>Версия {document.version}</span>
+              </div>
+            </div>
+          </header>
+
+          <div className="documentPageContent documentPageContentReadable">
+            <div className="markdownPreview">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight]}
+                components={markdownComponents}
+              >
+                {document.body_md}
+              </ReactMarkdown>
             </div>
           </div>
-        </header>
-
-        <div className="documentPageContent">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight]}
-            components={markdownComponents}
-          >
-            {document.body_md}
-          </ReactMarkdown>
-        </div>
-      </article>
+        </article>
+      </div>
     </section>
   );
 }
@@ -275,7 +291,7 @@ export function EditDocumentPage() {
 
   return (
     <DocumentEditorPageShell
-      title={`Редактирование: ${document.title}`}
+      title={document.title}
       backTo={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${document.id}`}
     >
       <DocumentEditor
@@ -317,22 +333,26 @@ function DocumentEditorPageShell({
 }) {
   return (
     <section className="documentEditorPage">
-      <div className="documentPageToolbar">
-        <Link className="secondaryButton compactButton" to={backTo}>
-          <ArrowLeft size={15} />
-          <span>Назад</span>
-        </Link>
+      <div className="documentPageFrame">
+        <div className="documentPageToolbar">
+          <Link className="secondaryButton compactButton" to={backTo}>
+            <ArrowLeft size={15} />
+            <span>Назад</span>
+          </Link>
+        </div>
+
+        <header className="documentEditorPageHeader">
+          <p className="documentsEyebrow">Editor</p>
+          <h2>{title}</h2>
+        </header>
+
+        {children}
       </div>
-      <section className="documentEditorPageHeader">
-        <p className="documentsEyebrow">Editor</p>
-        <h2>{title}</h2>
-      </section>
-      {children}
     </section>
   );
 }
 
-function DocumentTreeLink({
+function DocumentTreeItem({
   node,
   workspaceSlug,
   projectSlug,
@@ -341,29 +361,52 @@ function DocumentTreeLink({
   workspaceSlug: string;
   projectSlug: string;
 }) {
+  const [expanded, setExpanded] = useState(true);
+  const hasChildren = node.children.length > 0;
+
   return (
-    <div className="documentTreeNode">
-      <Link
-        className="documentTreeRow"
-        style={{ paddingLeft: `${12 + node.depth * 14}px` }}
-        to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${node.document.id}`}
-      >
-        <div>
-          <strong>{node.document.title}</strong>
-          <span>{node.document.slug}</span>
+    <div className="documentTreeItem">
+      <div className="documentTreeRow" style={{ paddingLeft: `${node.depth * 20}px` }}>
+        <div className="documentTreeRowMain">
+          {hasChildren ? (
+            <button
+              type="button"
+              className="documentTreeToggle"
+              onClick={() => setExpanded((value) => !value)}
+              aria-label={expanded ? 'Свернуть раздел' : 'Развернуть раздел'}
+            >
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </button>
+          ) : (
+            <span className="documentTreeSpacer" />
+          )}
+
+          <Link
+            className="documentTreeLink"
+            to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${node.document.id}`}
+          >
+            <strong>{node.document.title}</strong>
+            <span>{node.document.slug}</span>
+          </Link>
         </div>
+
         <span className={`statusPill status-${node.document.status}`}>
           {documentStatusLabel(node.document.status)}
         </span>
-      </Link>
-      {node.children.map((child) => (
-        <DocumentTreeLink
-          key={child.document.id}
-          node={child}
-          workspaceSlug={workspaceSlug}
-          projectSlug={projectSlug}
-        />
-      ))}
+      </div>
+
+      {hasChildren && expanded ? (
+        <div className="documentTreeChildren">
+          {node.children.map((child) => (
+            <DocumentTreeItem
+              key={child.document.id}
+              node={child}
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -387,12 +430,14 @@ export function DocumentEditor({
   isPending: boolean;
   error: unknown;
 }) {
+  const { workspaceSlug = '', projectSlug = '' } = useParams();
   const [title, setTitle] = useState(document?.title ?? '');
   const [slug, setSlug] = useState(document?.slug ?? '');
   const [bodyMd, setBodyMd] = useState(document?.body_md ?? '');
   const [status, setStatus] = useState<DocumentStatus>(document?.status ?? DEFAULT_DOCUMENT_STATUS);
   const [slugEdited, setSlugEdited] = useState(Boolean(document?.slug));
   const [version] = useState(document?.version ?? 1);
+  const formId = `document-editor-${mode}`;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -420,144 +465,171 @@ export function DocumentEditor({
   }
 
   return (
-    <section className="composePanel documentEditor documentEditorShell">
+    <section className="documentEditorShell">
+      <div className="documentEditorToolbar">
+        <div className="documentEditorToolbarTitle">
+          <h3>{mode === 'create' ? 'Новый документ' : 'Редактирование'}</h3>
+          <div className="documentPageMetaLine">
+            <span className={`statusPill status-${status}`}>{documentStatusLabel(status)}</span>
+            {mode === 'edit' ? <span>Версия {version}</span> : null}
+          </div>
+        </div>
+
+        <div className="rowActions">
+          <button
+            type="submit"
+            form={formId}
+            className="primaryButton compactButton"
+            disabled={isPending || !canEdit}
+          >
+            <Save size={16} />
+            <span>{isPending ? 'Сохранение...' : mode === 'create' ? 'Создать' : 'Сохранить'}</span>
+          </button>
+          {mode === 'edit' && onDelete ? (
+            <button
+              type="button"
+              className="secondaryButton compactButton dangerButton"
+              onClick={onDelete}
+              disabled={isPending || !canEdit}
+            >
+              <Trash2 size={16} />
+              <span>Удалить</span>
+            </button>
+          ) : null}
+          {mode === 'create' && onCancel ? (
+            <button
+              type="button"
+              className="secondaryButton compactButton"
+              onClick={onCancel}
+            >
+              Отмена
+            </button>
+          ) : null}
+        </div>
+      </div>
+
       {!canEdit ? (
         <div className="emptyPanel">
           Только просмотр. Для изменения документа нужны права editor или owner.
         </div>
       ) : (
         <div className="documentEditorLayout">
-          <form className="documentEditorPane documentEditorFormPane" onSubmit={handleSubmit}>
-            <div className="panelHeader">
-              <h3>{mode === 'create' ? 'Поля документа' : 'Редактирование'}</h3>
-              <span className={`statusPill status-${status}`}>{documentStatusLabel(status)}</span>
-            </div>
+          <form id={formId} className="documentEditorFormPane" onSubmit={handleSubmit}>
+            <section className="documentEditorSection">
+              <div className="documentsPaneHeader">
+                <h3>Метаданные</h3>
+              </div>
+              <div className="formGrid formGridWide">
+                <label className="field">
+                  <span>Название</span>
+                  <input
+                    value={title}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      setTitle(nextValue);
+                      if (!slugEdited) {
+                        setSlug(slugify(nextValue));
+                      }
+                    }}
+                    placeholder="Руководство по проекту"
+                    required
+                  />
+                </label>
+                <label className="field">
+                  <span>Slug</span>
+                  <input
+                    value={slug}
+                    onChange={(event) => {
+                      setSlug(event.target.value);
+                      setSlugEdited(true);
+                    }}
+                    placeholder="project-guide"
+                    required
+                  />
+                </label>
+                <label className="field">
+                  <span>Status</span>
+                  <select
+                    value={status}
+                    onChange={(event) => setStatus(event.target.value as DocumentStatus)}
+                  >
+                    <option value="draft">Черновик</option>
+                    <option value="published">Опубликован</option>
+                    <option value="archived">Архив</option>
+                  </select>
+                </label>
+                {mode === 'edit' ? (
+                  <label className="field">
+                    <span>Version</span>
+                    <input value={version} readOnly />
+                  </label>
+                ) : null}
+              </div>
+            </section>
 
-            <div className="formGrid formGridWide">
+            <section className="documentEditorSection">
+              <div className="documentsPaneHeader">
+                <h3>Markdown</h3>
+              </div>
               <label className="field">
-                <span>Название</span>
-                <input
-                  value={title}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    setTitle(nextValue);
-                    if (!slugEdited) {
-                      setSlug(slugify(nextValue));
-                    }
-                  }}
-                  placeholder="Руководство по проекту"
-                  required
-                />
-              </label>
-              <label className="field">
-                <span>Slug</span>
-                <input
-                  value={slug}
-                  onChange={(event) => {
-                    setSlug(event.target.value);
-                    setSlugEdited(true);
-                  }}
-                  placeholder="project-guide"
-                  required
-                />
-              </label>
-              <label className="field fieldSpan2">
-                <span>Markdown body</span>
+                <span>Содержимое</span>
                 <textarea
                   className="documentEditorTextarea"
                   value={bodyMd}
                   onChange={(event) => setBodyMd(event.target.value)}
-                  rows={22}
+                  rows={24}
                   placeholder="# Документ"
                   required
                 />
               </label>
-              <label className="field">
-                <span>Status</span>
-                <select
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value as DocumentStatus)}
-                >
-                  <option value="draft">Черновик</option>
-                  <option value="published">Опубликован</option>
-                  <option value="archived">Архив</option>
-                </select>
-              </label>
-              {mode === 'edit' ? (
-                <label className="field">
-                  <span>Version</span>
-                  <input value={version} readOnly />
-                </label>
-              ) : null}
-            </div>
-
-            <div className="formActions documentEditorActions">
-              <button type="submit" className="primaryButton compactButton" disabled={isPending}>
-                <Save size={16} />
-                <span>{isPending ? 'Сохранение...' : mode === 'create' ? 'Создать' : 'Сохранить'}</span>
-              </button>
-              {mode === 'edit' && onDelete ? (
-                <button
-                  type="button"
-                  className="iconButton dangerIconButton"
-                  onClick={onDelete}
-                  disabled={isPending}
-                >
-                  <Trash2 size={16} />
-                  <span>Удалить</span>
-                </button>
-              ) : null}
-              {mode === 'create' && onCancel ? (
-                <button
-                  type="button"
-                  className="secondaryButton compactButton"
-                  onClick={onCancel}
-                >
-                  Отмена
-                </button>
-              ) : null}
-            </div>
+            </section>
           </form>
 
-          <aside className="documentEditorPane documentEditorPreviewPane">
-            <div className="panelHeader">
-              <div>
-                <h3>Preview</h3>
-                <p className="mutedText">Живой preview без лишнего chrome, ближе к wiki-странице.</p>
-              </div>
-              <span className={`statusPill status-${status}`}>{documentStatusLabel(status)}</span>
+          <aside className="documentEditorPreviewPane">
+            <div className="documentsPaneHeader">
+              <h3>Preview</h3>
+              <Link
+                className="secondaryButton compactButton"
+                to={
+                  document
+                    ? `/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${document.id}`
+                    : '#'
+                }
+                onClick={(event) => {
+                  if (!document) {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                <Eye size={15} />
+                <span>Открыть страницу</span>
+              </Link>
             </div>
 
-            <div className="documentPreviewMeta">
-              <div>
-                <span className="statLabel">Название</span>
-                <strong>{title || 'Без названия'}</strong>
-              </div>
-              <div>
-                <span className="statLabel">Slug</span>
-                <strong>{slug || '—'}</strong>
-              </div>
-              <div>
-                <span className="statLabel">Version</span>
-                <strong>{version}</strong>
-              </div>
-            </div>
-
-            <article className="documentPageCanvas documentPageCanvasPreview">
+            <article className="documentPageSurface documentPageSurfacePreview">
               <header className="documentPageHeader">
                 <div className="documentPageHeaderMain">
                   <p className="documentsEyebrow">{slug || 'draft-document'}</p>
                   <h2>{title || 'Без названия'}</h2>
+                  <div className="documentPageMetaLine">
+                    <span className={`statusPill status-${status}`}>
+                      {documentStatusLabel(status)}
+                    </span>
+                    <span>Версия {version}</span>
+                  </div>
                 </div>
               </header>
-              <div className="documentPageContent">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeHighlight]}
-                  components={markdownComponents}
-                >
-                  {bodyMd || '*Пустой документ*'}
-                </ReactMarkdown>
+
+              <div className="documentPageContent documentPageContentCompact">
+                <div className="markdownPreview">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeHighlight]}
+                    components={markdownComponents}
+                  >
+                    {bodyMd || '*Пустой документ*'}
+                  </ReactMarkdown>
+                </div>
               </div>
             </article>
           </aside>
@@ -568,7 +640,7 @@ export function DocumentEditor({
         <div className="actionBanner errorBanner documentConflict">
           <div>
             <strong>Конфликт версии.</strong>
-            <p>Документ уже изменён на сервере. Перезагрузите страницу и повторите сохранение.</p>
+            <p>Документ уже изменён на сервере. Обновите страницу и повторите сохранение.</p>
           </div>
           <button
             type="button"
@@ -634,19 +706,6 @@ function buildDocumentTree(documents: DocumentDetail[]): DocumentTreeNode[] {
   });
 
   return roots.map((document) => buildNode(document, 0));
-}
-
-function summarizeDocument(bodyMd: string): string {
-  const normalized = bodyMd
-    .replace(/[#>*`[\]-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (normalized.length <= 180) {
-    return normalized || 'Без описания';
-  }
-
-  return `${normalized.slice(0, 177)}...`;
 }
 
 const markdownComponents: Components = {

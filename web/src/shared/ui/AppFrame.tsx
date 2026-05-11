@@ -10,13 +10,28 @@ import {
   StickyNote,
   Trash2,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { logout } from '../../api/auth';
 import { queryKeys } from '../../api/query-keys';
-import { useDeleteProject, useDeleteWorkspace, useProject, useProjects, useWorkspace, useWorkspaces } from '../../hooks/useWorkspaces';
+import {
+  useDeleteProject,
+  useDeleteWorkspace,
+  useProject,
+  useProjects,
+  useWorkspace,
+  useWorkspaces,
+} from '../../hooks/useWorkspaces';
 import { useSession } from '../../hooks/useSession';
 import { getErrorMessage } from '../lib/errors';
+
+type ContextLink = {
+  icon: LucideIcon;
+  label: string;
+  to: string;
+  end?: boolean;
+};
 
 export function AppFrame({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
@@ -32,6 +47,8 @@ export function AppFrame({ children }: { children: ReactNode }) {
   const projects = projectsQuery.data?.items ?? [];
   const workspaceName = workspaceQuery.data?.name ?? 'Рабочие пространства';
   const projectName = projectQuery.data?.name;
+  const currentWorkspace = workspaces.find((workspace) => workspace.slug === workspaceSlug);
+  const currentProject = projects.find((project) => project.slug === projectSlug);
   const deleteWorkspaceMutation = useDeleteWorkspace();
   const deleteProjectMutation = useDeleteProject(workspaceSlug);
   const canDeleteWorkspace = Boolean(workspaceSlug) && !projectSlug && actor?.role === 'owner';
@@ -47,6 +64,8 @@ export function AppFrame({ children }: { children: ReactNode }) {
       navigate('/login', { replace: true });
     },
   });
+
+  const contextLinks = getContextLinks(workspaceSlug, projectSlug);
 
   function handleDeleteCurrent() {
     if (projectSlug) {
@@ -79,117 +98,81 @@ export function AppFrame({ children }: { children: ReactNode }) {
 
   return (
     <div className="appShell">
-      <aside className="appSidebar">
-        <Link className="brandMark" to="/workspaces">
-          <span className="brandIcon">AW</span>
-          <span>Agent Workspace</span>
-        </Link>
+      <aside className="appRail">
+        <div className="appRailGroup">
+          <Link className="brandMark brandMarkRail" to="/workspaces" aria-label="Agent Workspace">
+            <span className="brandIcon">AW</span>
+          </Link>
 
-        <nav className="sidebarSection" aria-label="Рабочие пространства">
-          <span className="sidebarLabel">Рабочие пространства</span>
-          <NavLink to="/workspaces" className={({ isActive }) => `sidebarLink${isActive ? ' isActive' : ''}`}>
-            <BriefcaseBusiness size={16} />
-            <span>Все</span>
-          </NavLink>
-          {workspaces.slice(0, 6).map((workspace) => (
-            <NavLink
-              key={workspace.id}
-              to={`/workspaces/${workspace.slug}`}
-              className={({ isActive }) => `sidebarLink${isActive ? ' isActive' : ''}`}
-            >
-              <FolderKanban size={16} />
-              <span>{workspace.name}</span>
-            </NavLink>
-          ))}
-        </nav>
-
-        {workspaceSlug ? (
-          <nav className="sidebarSection" aria-label="Проекты">
-            <span className="sidebarLabel">Проекты</span>
-            {projects.length > 0 ? (
-              projects.slice(0, 8).map((project) => (
-                <NavLink
-                  key={project.id}
-                  to={`/workspaces/${workspaceSlug}/projects/${project.slug}/tasks`}
-                  className={({ isActive }) => `sidebarLink${isActive ? ' isActive' : ''}`}
-                >
-                  <CheckSquare size={16} />
-                  <span>{project.name}</span>
-                </NavLink>
-              ))
-            ) : (
-              <span className="sidebarEmpty">Проектов нет</span>
-            )}
+          <nav className="railNav" aria-label="Основная навигация">
+            <RailLink
+              to="/workspaces"
+              icon={BriefcaseBusiness}
+              label="Рабочие пространства"
+              end
+            />
+            {workspaceSlug ? (
+              <RailLink
+                to={`/workspaces/${workspaceSlug}`}
+                icon={FolderKanban}
+                label={currentWorkspace?.name ?? workspaceName}
+              />
+            ) : null}
+            {workspaceSlug && projectSlug ? (
+              <RailLink
+                to={`/workspaces/${workspaceSlug}/projects/${projectSlug}`}
+                icon={LayoutDashboard}
+                label={currentProject?.name ?? projectName ?? projectSlug}
+              />
+            ) : null}
+            {workspaceSlug ? (
+              <RailLink
+                to={`/workspaces/${workspaceSlug}/agents`}
+                icon={KeyRound}
+                label="Agents"
+              />
+            ) : null}
           </nav>
-        ) : null}
-
-        {workspaceSlug ? (
-          <nav className="sidebarSection" aria-label="Агенты">
-            <span className="sidebarLabel">Агенты</span>
-            <NavLink
-              to={`/workspaces/${workspaceSlug}/agents`}
-              className={({ isActive }) => `sidebarLink${isActive ? ' isActive' : ''}`}
-            >
-              <KeyRound size={16} />
-              <span>Agents</span>
-            </NavLink>
-          </nav>
-        ) : null}
+        </div>
       </aside>
 
       <main className="appMain">
         <header className="topBar">
-          <div className="topBarTitle">
-            <div className="breadcrumbs">
-              <Link to="/workspaces">Рабочие пространства</Link>
-              {workspaceSlug ? <span>/</span> : null}
-              {workspaceSlug ? <Link to={`/workspaces/${workspaceSlug}`}>{workspaceName}</Link> : null}
-              {projectName ? <span>/</span> : null}
-              {projectName ? <span>{projectName}</span> : null}
+          <div className="topBarMain">
+            <div className="topBarTitle">
+              <div className="breadcrumbs">
+                <Link to="/workspaces">Рабочие пространства</Link>
+                {workspaceSlug ? <span>/</span> : null}
+                {workspaceSlug ? <Link to={`/workspaces/${workspaceSlug}`}>{workspaceName}</Link> : null}
+                {projectName ? <span>/</span> : null}
+                {projectName ? <span>{projectName}</span> : null}
+              </div>
+              <h1>{projectName ?? workspaceName}</h1>
             </div>
-            <h1>{projectName ?? workspaceName}</h1>
-          </div>
 
-          {workspaceSlug && projectSlug ? (
-            <nav className="topTabs" aria-label="Навигация проекта">
-              <NavLink
-                to={`/workspaces/${workspaceSlug}/projects/${projectSlug}`}
-                end
-                className={({ isActive }) => `topTab${isActive ? ' isActive' : ''}`}
-              >
-                <LayoutDashboard size={16} />
-                <span>Обзор</span>
-              </NavLink>
-              <NavLink
-                to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/tasks`}
-                className={({ isActive }) => `topTab${isActive ? ' isActive' : ''}`}
-              >
-                <CheckSquare size={16} />
-                <span>Задачи</span>
-              </NavLink>
-              <NavLink
-                to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/notes`}
-                className={({ isActive }) => `topTab${isActive ? ' isActive' : ''}`}
-              >
-                <StickyNote size={16} />
-                <span>Заметки</span>
-              </NavLink>
-              <NavLink
-                to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents`}
-                className={({ isActive }) => `topTab${isActive ? ' isActive' : ''}`}
-              >
-                <FileText size={16} />
-                <span>Документы</span>
-              </NavLink>
-            </nav>
-          ) : null}
+            {contextLinks.length > 0 ? (
+              <nav className="topTabs topTabsMinimal" aria-label="Навигация по разделу">
+                {contextLinks.map((link) => (
+                  <NavLink
+                    key={link.to}
+                    to={link.to}
+                    end={link.end}
+                    className={({ isActive }) => `topTab topTabMinimal${isActive ? ' isActive' : ''}`}
+                  >
+                    <link.icon size={16} />
+                    <span>{link.label}</span>
+                  </NavLink>
+                ))}
+              </nav>
+            ) : null}
+          </div>
 
           <div className="topBarActions">
             <div className="actorMeta">
               <span>{actor?.actor_kind ?? 'human'}</span>
               <strong>{actor?.role ?? 'member'}</strong>
             </div>
-            {(canDeleteWorkspace || canDeleteProject) ? (
+            {canDeleteWorkspace || canDeleteProject ? (
               <button
                 type="button"
                 className="iconButton dangerIconButton"
@@ -222,4 +205,75 @@ export function AppFrame({ children }: { children: ReactNode }) {
       </main>
     </div>
   );
+}
+
+function RailLink({
+  to,
+  icon: Icon,
+  label,
+  end,
+}: {
+  to: string;
+  icon: LucideIcon;
+  label: string;
+  end?: boolean;
+}) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) => `railLink${isActive ? ' isActive' : ''}`}
+      title={label}
+      aria-label={label}
+    >
+      <Icon size={18} />
+      <span className="srOnly">{label}</span>
+    </NavLink>
+  );
+}
+
+function getContextLinks(workspaceSlug: string, projectSlug: string): ContextLink[] {
+  if (workspaceSlug && projectSlug) {
+    return [
+      {
+        icon: LayoutDashboard,
+        label: 'Обзор',
+        to: `/workspaces/${workspaceSlug}/projects/${projectSlug}`,
+        end: true,
+      },
+      {
+        icon: CheckSquare,
+        label: 'Задачи',
+        to: `/workspaces/${workspaceSlug}/projects/${projectSlug}/tasks`,
+      },
+      {
+        icon: StickyNote,
+        label: 'Заметки',
+        to: `/workspaces/${workspaceSlug}/projects/${projectSlug}/notes`,
+      },
+      {
+        icon: FileText,
+        label: 'Документы',
+        to: `/workspaces/${workspaceSlug}/projects/${projectSlug}/documents`,
+      },
+    ];
+  }
+
+  if (workspaceSlug) {
+    return [
+      {
+        icon: LayoutDashboard,
+        label: 'Проекты',
+        to: `/workspaces/${workspaceSlug}`,
+        end: true,
+      },
+      {
+        icon: KeyRound,
+        label: 'Agents',
+        to: `/workspaces/${workspaceSlug}/agents`,
+      },
+    ];
+  }
+
+  return [];
 }
