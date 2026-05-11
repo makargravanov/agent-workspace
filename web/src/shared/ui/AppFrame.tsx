@@ -109,15 +109,6 @@ export function AppFrame({ children }: { children: ReactNode }) {
               <span className="brandIcon">AW</span>
               {railExpanded ? <span className="brandLabel">Agent Workspace</span> : null}
             </Link>
-            <button
-              type="button"
-              className="railToggle"
-              onClick={() => setRailExpanded((value) => !value)}
-              aria-label={railExpanded ? 'Свернуть боковую панель' : 'Раскрыть боковую панель'}
-              title={railExpanded ? 'Свернуть' : 'Раскрыть'}
-            >
-              {railExpanded ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-            </button>
           </div>
 
           <nav className="railNav" aria-label="Основная навигация">
@@ -156,6 +147,15 @@ export function AppFrame({ children }: { children: ReactNode }) {
         </div>
 
         <div className="appRailFooter">
+          <button
+            type="button"
+            className="railToggle railToggleFooter"
+            onClick={() => setRailExpanded((value) => !value)}
+            aria-label={railExpanded ? 'Свернуть боковую панель' : 'Раскрыть боковую панель'}
+            title={railExpanded ? 'Свернуть' : 'Раскрыть'}
+          >
+            {railExpanded ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+          </button>
           <div className="railMeta">
             <span className="brandIcon">AW</span>
             {railExpanded ? <span className="railMetaLabel">{actor?.role ?? 'member'}</span> : null}

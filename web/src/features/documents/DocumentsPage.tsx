@@ -9,9 +9,9 @@ import {
   Save,
   Trash2,
 } from 'lucide-react';
-import type { DragEvent, FormEvent, ReactNode } from 'react';
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import type { DragEvent, FormEvent, KeyboardEvent, ReactNode } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import 'highlight.js/styles/github.css';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
@@ -37,6 +37,33 @@ import { FullPageMessage } from '../../shared/ui/FullPageMessage';
 
 const DEFAULT_DOCUMENT_STATUS: DocumentStatus = 'draft';
 
+type DocumentTreeNode = {
+  document: DocumentDetail;
+  depth: number;
+  children: DocumentTreeNode[];
+};
+
+type ParentOption = {
+  id: string;
+  label: string;
+};
+
+type LineRange = {
+  start: number;
+  end: number;
+};
+
+type LinkAutocompleteState = {
+  start: number;
+  end: number;
+  query: string;
+};
+
+type CycleInfo = {
+  cycleDocumentIds: string[];
+  repairDocumentIds: string[];
+};
+
 export function DocumentsIndexPage() {
   const navigate = useNavigate();
   const { workspaceSlug = '', projectSlug = '' } = useParams();
@@ -46,10 +73,13 @@ export function DocumentsIndexPage() {
   const canEdit = canEditDocuments(sessionQuery.data?.actor?.role);
   const documents = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data?.items]);
   const tree = useMemo(() => buildDocumentTree(documents), [documents]);
-  const cycleDocumentIds = useMemo(() => detectCycleDocumentIds(documents), [documents]);
-  const rootCount = tree.length;
+  const cycleInfo = useMemo(() => detectCycleInfo(documents), [documents]);
+  const rootCount = tree.filter((node) => node.depth === 0).length;
   const [draggedDocumentId, setDraggedDocumentId] = useState<string | null>(null);
   const [repairError, setRepairError] = useState<string | null>(null);
+  const reparentPendingId = reparentDocumentMutation.isPending
+    ? reparentDocumentMutation.variables?.documentId ?? null
+    : null;
 
   function moveDocument(documentId: string, parentDocumentId: string | null) {
     const currentDocument = documents.find((item) => item.id === documentId);
@@ -70,7 +100,7 @@ export function DocumentsIndexPage() {
     setRepairError(null);
 
     try {
-      for (const documentId of cycleDocumentIds) {
+      for (const documentId of cycleInfo.repairDocumentIds) {
         const currentDocument = documents.find((item) => item.id === documentId);
         if (!currentDocument || currentDocument.parent_document_id === null) {
           continue;
@@ -133,7 +163,7 @@ export function DocumentsIndexPage() {
             <h3>Дерево документов</h3>
             <div className="rowActions">
               <span className="mutedText">{documents.length}</span>
-              {canEdit && cycleDocumentIds.length > 0 ? (
+              {canEdit && cycleInfo.cycleDocumentIds.length > 0 ? (
                 <button
                   type="button"
                   className="secondaryButton compactButton"
@@ -146,18 +176,16 @@ export function DocumentsIndexPage() {
             </div>
           </div>
 
-          {cycleDocumentIds.length > 0 ? (
+          {cycleInfo.cycleDocumentIds.length > 0 ? (
             <div className="actionBanner errorBanner documentsInlineBanner">
-              Обнаружены циклы в структуре документов. Проблемных узлов: {cycleDocumentIds.length}.
+              Обнаружены циклы в структуре документов. Проблемных узлов: {cycleInfo.cycleDocumentIds.length}.
             </div>
           ) : null}
 
           {canEdit ? (
             <div
               className="documentRootDropZone"
-              onDragOver={(event) => {
-                event.preventDefault();
-              }}
+              onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => {
                 event.preventDefault();
                 const documentId = event.dataTransfer.getData('text/document-id') || draggedDocumentId;
@@ -189,13 +217,14 @@ export function DocumentsIndexPage() {
                   draggedDocumentId={draggedDocumentId}
                   setDraggedDocumentId={setDraggedDocumentId}
                   onMoveDocument={moveDocument}
-                  reparentPendingId={reparentDocumentMutation.variables?.documentId ?? null}
+                  reparentPendingId={reparentPendingId}
                 />
               ))}
             </div>
           ) : (
             <div className="emptyPanel">Документов пока нет.</div>
           )}
+
           {reparentDocumentMutation.error ? (
             <p className="errorText">{getErrorMessage(reparentDocumentMutation.error)}</p>
           ) : null}
@@ -227,7 +256,7 @@ export function DocumentsIndexPage() {
                 <Link
                   key={document.id}
                   className="documentsFlatRow"
-                  to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${document.id}`}
+                  to={makeDocumentPath(workspaceSlug, projectSlug, document.id)}
                 >
                   <div>
                     <strong>{document.title}</strong>
@@ -247,10 +276,27 @@ export function DocumentsIndexPage() {
 }
 
 export function DocumentViewPage() {
+  const location = useLocation();
   const { workspaceSlug = '', projectSlug = '', documentId = '' } = useParams();
   const sessionQuery = useSession();
+  const documentsQuery = useDocuments(workspaceSlug, projectSlug);
   const documentQuery = useDocument(workspaceSlug, projectSlug, documentId);
   const canEdit = canEditDocuments(sessionQuery.data?.actor?.role);
+  const documents = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data?.items]);
+  const lineRange = useMemo(() => parseLineHash(location.hash), [location.hash]);
+  const document = documentQuery.data ?? null;
+  const markdownBody = useMemo(
+    () => transformWikiLinks(document?.body_md ?? '', documents, workspaceSlug, projectSlug),
+    [document?.body_md, documents, workspaceSlug, projectSlug],
+  );
+  const markdownComponents = useMemo(
+    () => createMarkdownComponents(workspaceSlug, projectSlug),
+    [workspaceSlug, projectSlug],
+  );
+  const sourceLines = useMemo(
+    () => buildSourceLineWindow(document?.body_md ?? '', lineRange),
+    [document?.body_md, lineRange],
+  );
 
   if (documentQuery.isLoading) {
     return <FullPageMessage title="Загрузка документа" embedded />;
@@ -266,16 +312,15 @@ export function DocumentViewPage() {
     );
   }
 
-  const document = documentQuery.data;
+  if (!document) {
+    return null;
+  }
 
   return (
     <section className="documentViewPage">
       <div className="documentPageFrame">
         <div className="documentPageToolbar">
-          <Link
-            className="secondaryButton compactButton"
-            to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents`}
-          >
+          <Link className="secondaryButton compactButton" to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents`}>
             <ArrowLeft size={15} />
             <span>К каталогу</span>
           </Link>
@@ -286,7 +331,7 @@ export function DocumentViewPage() {
                   workspaceSlug={workspaceSlug}
                   projectSlug={projectSlug}
                   document={document}
-                  triggerLabel="Move to…"
+                  triggerLabel="Move to..."
                   buttonClassName="secondaryButton compactButton"
                 />
                 <Link
@@ -323,9 +368,32 @@ export function DocumentViewPage() {
                 rehypePlugins={[rehypeHighlight]}
                 components={markdownComponents}
               >
-                {document.body_md}
+                {markdownBody}
               </ReactMarkdown>
             </div>
+
+            {lineRange ? (
+              <section className="documentSourcePanel">
+                <div className="documentsPaneHeader">
+                  <h3>Source lines</h3>
+                  <span className="mutedText">
+                    L{lineRange.start}{lineRange.end !== lineRange.start ? `-L${lineRange.end}` : ''}
+                  </span>
+                </div>
+                <div className="documentSourceLines">
+                  {sourceLines.map((line) => (
+                    <div
+                      key={line.number}
+                      id={`L${line.number}`}
+                      className={`documentSourceLine${line.highlighted ? ' isHighlighted' : ''}`}
+                    >
+                      <span className="documentSourceLineNumber">{line.number}</span>
+                      <code>{line.content || ' '}</code>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </div>
         </article>
       </div>
@@ -357,10 +425,7 @@ export function CreateDocumentPage() {
           }
           createDocumentMutation.mutate(payload, {
             onSuccess: (created) => {
-              navigate(
-                `/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${created.id}`,
-                { replace: true },
-              );
+              navigate(makeDocumentPath(workspaceSlug, projectSlug, created.id), { replace: true });
             },
           });
         }}
@@ -398,7 +463,7 @@ export function EditDocumentPage() {
   return (
     <DocumentEditorPageShell
       title={document.title}
-      backTo={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${document.id}`}
+      backTo={makeDocumentPath(workspaceSlug, projectSlug, document.id)}
     >
       <DocumentEditor
         mode="edit"
@@ -532,7 +597,7 @@ function DocumentTreeItem({
 
           <Link
             className="documentTreeLink"
-            to={`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${node.document.id}`}
+            to={makeDocumentPath(workspaceSlug, projectSlug, node.document.id)}
             draggable={canEdit}
             onDragStart={(event) => {
               if (!canEdit) {
@@ -565,7 +630,7 @@ function DocumentTreeItem({
         </div>
       </div>
 
-      {reparentPendingId === node.document.id ? <p className="mutedText">Сохранение структуры…</p> : null}
+      {reparentPendingId === node.document.id ? <p className="mutedText">Сохранение структуры...</p> : null}
 
       {hasChildren && expanded ? (
         <div className="documentTreeChildren">
@@ -682,9 +747,7 @@ function DocumentMoveControl({
               Отмена
             </button>
           </div>
-          {documentsQuery.error ? (
-            <p className="errorText">{getErrorMessage(documentsQuery.error)}</p>
-          ) : null}
+          {documentsQuery.error ? <p className="errorText">{getErrorMessage(documentsQuery.error)}</p> : null}
           {reparentDocumentMutation.error ? (
             <p className="errorText">{getErrorMessage(reparentDocumentMutation.error)}</p>
           ) : null}
@@ -731,7 +794,33 @@ export function DocumentEditor({
   const [status, setStatus] = useState<DocumentStatus>(document?.status ?? DEFAULT_DOCUMENT_STATUS);
   const [slugEdited, setSlugEdited] = useState(Boolean(document?.slug));
   const [version] = useState(document?.version ?? 1);
+  const [activeSuggestion, setActiveSuggestion] = useState(0);
+  const [caretPosition, setCaretPosition] = useState(bodyMd.length);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const formId = `document-editor-${mode}`;
+  const linkAutocomplete = useMemo(
+    () => detectLinkAutocomplete(bodyMd, caretPosition),
+    [bodyMd, caretPosition],
+  );
+  const linkSuggestions = useMemo(() => {
+    if (!linkAutocomplete) {
+      return [];
+    }
+
+    const normalizedQuery = linkAutocomplete.query.toLowerCase().trim();
+    const items = documents.filter((item) => {
+      if (document && item.id === document.id) {
+        return false;
+      }
+      return (
+        normalizedQuery.length === 0 ||
+        item.title.toLowerCase().includes(normalizedQuery) ||
+        item.slug.toLowerCase().includes(normalizedQuery)
+      );
+    });
+
+    return items.slice(0, 8);
+  }, [document, documents, linkAutocomplete]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -759,6 +848,65 @@ export function DocumentEditor({
       status,
     });
   }
+
+  function applyLinkSuggestion(suggestedDocument: DocumentDetail) {
+    if (!linkAutocomplete) {
+      return;
+    }
+
+    const replacement = `[[${suggestedDocument.slug}]]`;
+    const nextValue =
+      bodyMd.slice(0, linkAutocomplete.start) + replacement + bodyMd.slice(linkAutocomplete.end);
+
+    setBodyMd(nextValue);
+    setActiveSuggestion(0);
+    setCaretPosition(linkAutocomplete.start + replacement.length);
+
+    queueMicrotask(() => {
+      const nextPosition = linkAutocomplete.start + replacement.length;
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextPosition, nextPosition);
+    });
+  }
+
+  function handleTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (!linkAutocomplete || linkSuggestions.length === 0) {
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveSuggestion((current) => (current + 1) % linkSuggestions.length);
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveSuggestion((current) =>
+        current === 0 ? linkSuggestions.length - 1 : current - 1,
+      );
+      return;
+    }
+
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      applyLinkSuggestion(linkSuggestions[activeSuggestion] ?? linkSuggestions[0]);
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      setActiveSuggestion(0);
+    }
+  }
+
+  const previewBody = useMemo(
+    () => transformWikiLinks(bodyMd || '*Пустой документ*', documents, workspaceSlug, projectSlug),
+    [bodyMd, documents, projectSlug, workspaceSlug],
+  );
+  const markdownComponents = useMemo(
+    () => createMarkdownComponents(workspaceSlug, projectSlug),
+    [workspaceSlug, projectSlug],
+  );
 
   return (
     <section className="documentEditorShell">
@@ -886,18 +1034,42 @@ export function DocumentEditor({
             <section className="documentEditorSection">
               <div className="documentsPaneHeader">
                 <h3>Markdown</h3>
+                <span className="mutedText">Введите `[[` для автодополнения ссылки на документ. Для строк: `[[slug#L12-L18]]`.</span>
               </div>
               <label className="field">
                 <span>Содержимое</span>
                 <textarea
+                  ref={textareaRef}
                   className="documentEditorTextarea"
                   value={bodyMd}
-                  onChange={(event) => setBodyMd(event.target.value)}
+                  onChange={(event) => {
+                    setBodyMd(event.target.value);
+                    setCaretPosition(event.target.selectionStart ?? event.target.value.length);
+                    setActiveSuggestion(0);
+                  }}
+                  onClick={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
+                  onKeyUp={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
+                  onKeyDown={handleTextareaKeyDown}
                   rows={24}
                   placeholder="# Документ"
                   required
                 />
               </label>
+              {linkAutocomplete && linkSuggestions.length > 0 ? (
+                <div className="documentLinkAutocomplete">
+                  {linkSuggestions.map((suggestedDocument, index) => (
+                    <button
+                      key={suggestedDocument.id}
+                      type="button"
+                      className={`documentLinkSuggestion${index === activeSuggestion ? ' isActive' : ''}`}
+                      onClick={() => applyLinkSuggestion(suggestedDocument)}
+                    >
+                      <strong>{suggestedDocument.title}</strong>
+                      <span>{suggestedDocument.slug}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </section>
           </form>
 
@@ -906,11 +1078,7 @@ export function DocumentEditor({
               <h3>Preview</h3>
               <Link
                 className="secondaryButton compactButton"
-                to={
-                  document
-                    ? `/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${document.id}`
-                    : '#'
-                }
+                to={document ? makeDocumentPath(workspaceSlug, projectSlug, document.id) : '#'}
                 onClick={(event) => {
                   if (!document) {
                     event.preventDefault();
@@ -943,7 +1111,7 @@ export function DocumentEditor({
                     rehypePlugins={[rehypeHighlight]}
                     components={markdownComponents}
                   >
-                    {bodyMd || '*Пустой документ*'}
+                    {previewBody}
                   </ReactMarkdown>
                 </div>
               </div>
@@ -987,17 +1155,6 @@ function canEditDocuments(role: string | undefined): boolean {
   return role === 'owner' || role === 'editor';
 }
 
-type DocumentTreeNode = {
-  document: DocumentDetail;
-  depth: number;
-  children: DocumentTreeNode[];
-};
-
-type ParentOption = {
-  id: string;
-  label: string;
-};
-
 function buildDocumentTree(documents: DocumentDetail[]): DocumentTreeNode[] {
   const childrenByParent = new Map<string, DocumentDetail[]>();
   const roots: DocumentDetail[] = [];
@@ -1037,7 +1194,7 @@ function buildDocumentTree(documents: DocumentDetail[]): DocumentTreeNode[] {
     };
   };
 
-  const tree: DocumentTreeNode[] = roots.map((document) => buildNode(document, 0, new Set()));
+  const tree = roots.map((document) => buildNode(document, 0, new Set()));
 
   const fallbackRoots = documents
     .filter((document) => !visited.has(document.id))
@@ -1076,13 +1233,15 @@ function collectDescendantIds(documents: DocumentDetail[], documentId: string): 
   return descendants;
 }
 
-function detectCycleDocumentIds(documents: DocumentDetail[]): string[] {
+function detectCycleInfo(documents: DocumentDetail[]): CycleInfo {
   const documentById = new Map(documents.map((document) => [document.id, document]));
   const state = new Map<string, 'visiting' | 'visited'>();
   const cycleIds = new Set<string>();
+  const repairIds = new Set<string>();
 
   function visit(documentId: string, path: string[]) {
     const currentState = state.get(documentId);
+
     if (currentState === 'visited') {
       return;
     }
@@ -1093,6 +1252,7 @@ function detectCycleDocumentIds(documents: DocumentDetail[]): string[] {
       for (const id of cyclePath) {
         cycleIds.add(id);
       }
+      repairIds.add(documentId);
       return;
     }
 
@@ -1111,7 +1271,10 @@ function detectCycleDocumentIds(documents: DocumentDetail[]): string[] {
     visit(document.id, []);
   }
 
-  return [...cycleIds];
+  return {
+    cycleDocumentIds: [...cycleIds],
+    repairDocumentIds: [...repairIds],
+  };
 }
 
 function buildParentOptions(
@@ -1137,73 +1300,197 @@ function buildParentOptions(
   return options;
 }
 
-const markdownComponents: Components = {
-  h1: ({ children, ...props }) => (
-    <h1 className="markdownHeading markdownHeading1" {...props}>
-      {children}
-    </h1>
-  ),
-  h2: ({ children, ...props }) => (
-    <h2 className="markdownHeading markdownHeading2" {...props}>
-      {children}
-    </h2>
-  ),
-  h3: ({ children, ...props }) => (
-    <h3 className="markdownHeading markdownHeading3" {...props}>
-      {children}
-    </h3>
-  ),
-  p: ({ children, ...props }) => (
-    <p className="markdownParagraph" {...props}>
-      {children}
-    </p>
-  ),
-  ul: ({ children, ...props }) => (
-    <ul className="markdownList" {...props}>
-      {children}
-    </ul>
-  ),
-  ol: ({ children, ...props }) => (
-    <ol className="markdownList markdownOrderedList" {...props}>
-      {children}
-    </ol>
-  ),
-  blockquote: ({ children, ...props }) => (
-    <blockquote className="markdownQuote" {...props}>
-      {children}
-    </blockquote>
-  ),
-  hr: (props) => <hr className="markdownDivider" {...props} />,
-  pre: ({ children, ...props }) => (
-    <pre className="markdownCodeBlock" {...props}>
-      {children}
-    </pre>
-  ),
-  code: ({ children, className, ...props }) => (
-    <code className={className?.length ? className : 'markdownInlineCode'} {...props}>
-      {children}
-    </code>
-  ),
-  a: ({ children, ...props }) => (
-    <a {...props} target="_blank" rel="noreferrer">
-      {children}
-    </a>
-  ),
-  table: ({ children, ...props }) => (
-    <div className="markdownTableWrap">
-      <table className="markdownTable" {...props}>
+function parseLineHash(hash: string): LineRange | null {
+  const match = hash.match(/^#L(\d+)(?:-L?(\d+))?$/i);
+  if (!match) {
+    return null;
+  }
+
+  const start = Number(match[1]);
+  const end = Number(match[2] ?? match[1]);
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || end <= 0) {
+    return null;
+  }
+
+  return {
+    start: Math.min(start, end),
+    end: Math.max(start, end),
+  };
+}
+
+function buildSourceLineWindow(bodyMd: string, range: LineRange | null) {
+  const lines = bodyMd.split('\n');
+  if (!range) {
+    return [];
+  }
+
+  const from = Math.max(1, range.start - 3);
+  const to = Math.min(lines.length, range.end + 3);
+
+  return lines.slice(from - 1, to).map((content, index) => {
+    const lineNumber = from + index;
+    return {
+      number: lineNumber,
+      content,
+      highlighted: lineNumber >= range.start && lineNumber <= range.end,
+    };
+  });
+}
+
+function detectLinkAutocomplete(value: string, caretPosition: number): LinkAutocompleteState | null {
+  const beforeCaret = value.slice(0, caretPosition);
+  const openIndex = beforeCaret.lastIndexOf('[[');
+  const closeIndex = beforeCaret.lastIndexOf(']]');
+
+  if (openIndex === -1 || closeIndex > openIndex) {
+    return null;
+  }
+
+  const query = beforeCaret.slice(openIndex + 2);
+  if (query.includes('\n') || query.includes(']')) {
+    return null;
+  }
+
+  return {
+    start: openIndex,
+    end: caretPosition,
+    query: query.split('#')[0].split('|')[0].trim(),
+  };
+}
+
+function resolveDocumentReference(reference: string, documents: DocumentDetail[]): DocumentDetail | null {
+  const normalizedReference = reference.trim().toLowerCase();
+  return (
+    documents.find((document) => document.id.toLowerCase() === normalizedReference) ??
+    documents.find((document) => document.slug.toLowerCase() === normalizedReference) ??
+    null
+  );
+}
+
+function transformWikiLinks(
+  bodyMd: string,
+  documents: DocumentDetail[],
+  workspaceSlug: string,
+  projectSlug: string,
+): string {
+  return bodyMd.replace(/\[\[([^[\]]+)\]\]/g, (fullMatch, rawInner: string) => {
+    const [rawTarget, rawLabel] = rawInner.split('|');
+    const target = rawTarget.trim();
+    const label = rawLabel?.trim();
+
+    if (!target) {
+      return fullMatch;
+    }
+
+    const [reference, hash = ''] = target.split('#');
+    const document = resolveDocumentReference(reference, documents);
+    if (!document) {
+      return fullMatch;
+    }
+
+    const href = makeDocumentPath(
+      workspaceSlug,
+      projectSlug,
+      document.id,
+      hash.length > 0 ? `#${hash}` : '',
+    );
+    const linkLabel = label || document.title;
+    return `[${linkLabel}](${href})`;
+  });
+}
+
+function createMarkdownComponents(
+  workspaceSlug: string,
+  projectSlug: string,
+): Components {
+  return {
+    h1: ({ children, ...props }) => (
+      <h1 className="markdownHeading markdownHeading1" {...props}>
         {children}
-      </table>
-    </div>
-  ),
-  th: ({ children, ...props }) => (
-    <th className="markdownTableHeader" {...props}>
-      {children}
-    </th>
-  ),
-  td: ({ children, ...props }) => (
-    <td className="markdownTableCell" {...props}>
-      {children}
-    </td>
-  ),
-};
+      </h1>
+    ),
+    h2: ({ children, ...props }) => (
+      <h2 className="markdownHeading markdownHeading2" {...props}>
+        {children}
+      </h2>
+    ),
+    h3: ({ children, ...props }) => (
+      <h3 className="markdownHeading markdownHeading3" {...props}>
+        {children}
+      </h3>
+    ),
+    p: ({ children, ...props }) => (
+      <p className="markdownParagraph" {...props}>
+        {children}
+      </p>
+    ),
+    ul: ({ children, ...props }) => (
+      <ul className="markdownList" {...props}>
+        {children}
+      </ul>
+    ),
+    ol: ({ children, ...props }) => (
+      <ol className="markdownList markdownOrderedList" {...props}>
+        {children}
+      </ol>
+    ),
+    blockquote: ({ children, ...props }) => (
+      <blockquote className="markdownQuote" {...props}>
+        {children}
+      </blockquote>
+    ),
+    hr: (props) => <hr className="markdownDivider" {...props} />,
+    pre: ({ children, ...props }) => (
+      <pre className="markdownCodeBlock" {...props}>
+        {children}
+      </pre>
+    ),
+    code: ({ children, className, ...props }) => (
+      <code className={className?.length ? className : 'markdownInlineCode'} {...props}>
+        {children}
+      </code>
+    ),
+    a: ({ children, href, ...props }) => {
+      if (href?.startsWith(`/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/`)) {
+        return (
+          <Link to={href} {...props}>
+            {children}
+          </Link>
+        );
+      }
+
+      return (
+        <a href={href} {...props} target="_blank" rel="noreferrer">
+          {children}
+        </a>
+      );
+    },
+    table: ({ children, ...props }) => (
+      <div className="markdownTableWrap">
+        <table className="markdownTable" {...props}>
+          {children}
+        </table>
+      </div>
+    ),
+    th: ({ children, ...props }) => (
+      <th className="markdownTableHeader" {...props}>
+        {children}
+      </th>
+    ),
+    td: ({ children, ...props }) => (
+      <td className="markdownTableCell" {...props}>
+        {children}
+      </td>
+    ),
+  };
+}
+
+function makeDocumentPath(
+  workspaceSlug: string,
+  projectSlug: string,
+  documentId: string,
+  hash = '',
+): string {
+  return `/workspaces/${workspaceSlug}/projects/${projectSlug}/documents/${documentId}${hash}`;
+}

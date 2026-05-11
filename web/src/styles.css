@@ -291,6 +291,9 @@ h3 {
 
 .appRailFooter {
   width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
 }
 
 .railMeta {
@@ -311,6 +314,15 @@ h3 {
   font-size: 0.82rem;
   font-weight: 600;
   text-transform: capitalize;
+}
+
+.railToggleFooter {
+  width: 40px;
+  height: 32px;
+}
+
+.appRail.isExpanded .railToggleFooter {
+  width: 100%;
 }
 
 .srOnly {
@@ -1401,6 +1413,39 @@ textarea:focus {
   box-shadow: 0 10px 24px rgba(9, 30, 66, 0.08);
 }
 
+.documentLinkAutocomplete {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-panel-subtle);
+}
+
+.documentLinkSuggestion {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+}
+
+.documentLinkSuggestion span {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.documentLinkSuggestion:hover,
+.documentLinkSuggestion.isActive {
+  border-color: var(--border-soft);
+  background: var(--bg-panel);
+}
+
 .documentEditorShell {
   display: grid;
   gap: 18px;
@@ -1575,6 +1620,52 @@ textarea:focus {
   color: #0052cc;
   text-decoration: underline;
   text-underline-offset: 0.15em;
+}
+
+.documentSourcePanel {
+  display: grid;
+  gap: 12px;
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.documentSourceLines {
+  display: grid;
+  gap: 1px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f7f8fa;
+}
+
+.documentSourceLine {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  background: #ffffff;
+}
+
+.documentSourceLine.isHighlighted {
+  background: #fff4e8;
+}
+
+.documentSourceLineNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  border-right: 1px solid var(--border-soft);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.documentSourceLine code {
+  display: block;
+  padding: 8px 12px;
+  overflow-x: auto;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  white-space: pre-wrap;
 }
 
 .markdownTableWrap {
@@ -1754,12 +1845,18 @@ textarea:focus {
 
   .appRailFooter {
     width: auto;
+    display: flex;
+    align-items: center;
   }
 
   .railMeta,
   .appRail.isExpanded .railMeta {
     justify-content: center;
     padding-top: 0;
+  }
+
+  .appRail.isExpanded .railToggleFooter {
+    width: 40px;
   }
 
   .topBar {
