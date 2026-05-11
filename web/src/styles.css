@@ -440,6 +440,12 @@ h3 {
   color: #9a4129;
 }
 
+.documentsInlineBanner {
+  margin: 0 0 12px;
+  border: 1px solid #e8c7bb;
+  border-radius: 6px;
+}
+
 .primaryButton,
 .secondaryButton,
 .iconButton {

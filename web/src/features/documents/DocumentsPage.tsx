@@ -46,8 +46,10 @@ export function DocumentsIndexPage() {
   const canEdit = canEditDocuments(sessionQuery.data?.actor?.role);
   const documents = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data?.items]);
   const tree = useMemo(() => buildDocumentTree(documents), [documents]);
+  const cycleDocumentIds = useMemo(() => detectCycleDocumentIds(documents), [documents]);
   const rootCount = tree.length;
   const [draggedDocumentId, setDraggedDocumentId] = useState<string | null>(null);
+  const [repairError, setRepairError] = useState<string | null>(null);
 
   function moveDocument(documentId: string, parentDocumentId: string | null) {
     const currentDocument = documents.find((item) => item.id === documentId);
@@ -62,6 +64,29 @@ export function DocumentsIndexPage() {
         parent_document_id: parentDocumentId,
       },
     });
+  }
+
+  async function repairCycles() {
+    setRepairError(null);
+
+    try {
+      for (const documentId of cycleDocumentIds) {
+        const currentDocument = documents.find((item) => item.id === documentId);
+        if (!currentDocument || currentDocument.parent_document_id === null) {
+          continue;
+        }
+
+        await reparentDocumentMutation.mutateAsync({
+          documentId,
+          payload: {
+            version: currentDocument.version,
+            parent_document_id: null,
+          },
+        });
+      }
+    } catch (error) {
+      setRepairError(getErrorMessage(error));
+    }
   }
 
   if (documentsQuery.isLoading) {
@@ -106,8 +131,26 @@ export function DocumentsIndexPage() {
         <div className="documentsTreePane">
           <div className="documentsPaneHeader">
             <h3>Дерево документов</h3>
-            <span className="mutedText">{documents.length}</span>
+            <div className="rowActions">
+              <span className="mutedText">{documents.length}</span>
+              {canEdit && cycleDocumentIds.length > 0 ? (
+                <button
+                  type="button"
+                  className="secondaryButton compactButton"
+                  onClick={() => void repairCycles()}
+                  disabled={reparentDocumentMutation.isPending}
+                >
+                  Починить циклы
+                </button>
+              ) : null}
+            </div>
           </div>
+
+          {cycleDocumentIds.length > 0 ? (
+            <div className="actionBanner errorBanner documentsInlineBanner">
+              Обнаружены циклы в структуре документов. Проблемных узлов: {cycleDocumentIds.length}.
+            </div>
+          ) : null}
 
           {canEdit ? (
             <div
@@ -156,6 +199,7 @@ export function DocumentsIndexPage() {
           {reparentDocumentMutation.error ? (
             <p className="errorText">{getErrorMessage(reparentDocumentMutation.error)}</p>
           ) : null}
+          {repairError ? <p className="errorText">{repairError}</p> : null}
         </div>
 
         <aside className="documentsIndexSummary">
@@ -1030,6 +1074,44 @@ function collectDescendantIds(documents: DocumentDetail[], documentId: string): 
   }
 
   return descendants;
+}
+
+function detectCycleDocumentIds(documents: DocumentDetail[]): string[] {
+  const documentById = new Map(documents.map((document) => [document.id, document]));
+  const state = new Map<string, 'visiting' | 'visited'>();
+  const cycleIds = new Set<string>();
+
+  function visit(documentId: string, path: string[]) {
+    const currentState = state.get(documentId);
+    if (currentState === 'visited') {
+      return;
+    }
+
+    if (currentState === 'visiting') {
+      const cycleStart = path.indexOf(documentId);
+      const cyclePath = cycleStart >= 0 ? path.slice(cycleStart) : [documentId];
+      for (const id of cyclePath) {
+        cycleIds.add(id);
+      }
+      return;
+    }
+
+    state.set(documentId, 'visiting');
+    const document = documentById.get(documentId);
+    const parentId = document?.parent_document_id;
+
+    if (parentId && documentById.has(parentId)) {
+      visit(parentId, [...path, documentId]);
+    }
+
+    state.set(documentId, 'visited');
+  }
+
+  for (const document of documents) {
+    visit(document.id, []);
+  }
+
+  return [...cycleIds];
 }
 
 function buildParentOptions(
