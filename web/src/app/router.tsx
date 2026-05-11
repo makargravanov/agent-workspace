@@ -1,6 +1,8 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { LoginPage } from '../features/auth/LoginPage';
 import { RootRedirect, RequireAuth } from '../features/auth/RequireAuth';
+import { AgentDetailsPage } from '../features/agents/AgentDetailsPage';
+import { AgentsPage } from '../features/agents/AgentsPage';
 import { ProjectOverviewPage } from '../features/projects/ProjectOverviewPage';
 import { ProjectRouteLayout } from '../features/projects/ProjectRouteLayout';
 import { WorkspacePage } from '../features/projects/WorkspacePage';
@@ -28,6 +30,8 @@ export function AppRouter() {
         <Route element={<ProtectedAppLayout />}>
           <Route path="/workspaces" element={<WorkspacesPage />} />
           <Route path="/workspaces/:workspaceSlug" element={<WorkspacePage />} />
+          <Route path="/workspaces/:workspaceSlug/agents" element={<AgentsPage />} />
+          <Route path="/workspaces/:workspaceSlug/agents/:agentId" element={<AgentDetailsPage />} />
           <Route path="/workspaces/:workspaceSlug/projects/:projectSlug" element={<ProjectRouteLayout />}>
             <Route index element={<ProjectOverviewPage />} />
             <Route path="tasks" element={<TasksPage />} />

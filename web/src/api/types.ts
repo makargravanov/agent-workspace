@@ -168,3 +168,62 @@ export interface CreateProjectPayload {
   slug: string;
   name: string;
 }
+
+export type AgentStatus = 'active' | 'disabled';
+
+export interface AgentSummary {
+  id: string;
+  workspace_id: string;
+  key: string;
+  display_name: string;
+  status: AgentStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAgentPayload {
+  key: string;
+  display_name: string;
+}
+
+export interface UpdateAgentPayload {
+  key?: string;
+  display_name?: string;
+  status?: AgentStatus;
+}
+
+export type CredentialStatus = 'active' | 'revoked';
+
+export interface AgentCredentialSummary {
+  id: string;
+  workspace_id: string;
+  project_id: string | null;
+  agent_id: string;
+  label: string;
+  secret_prefix: string;
+  scope_policy: string[];
+  status: CredentialStatus;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAgentCredentialPayload {
+  label: string;
+  project_id?: string | null;
+  scopes: string[];
+  expires_at?: string | null;
+}
+
+export interface UpdateAgentCredentialPayload {
+  label?: string;
+  project_id?: string | null;
+  scopes?: string[];
+  status?: CredentialStatus;
+  expires_at?: string | null;
+}
+
+export interface CreatedAgentCredential {
+  credential: AgentCredentialSummary;
+  secret: string;
+}

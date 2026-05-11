@@ -609,6 +609,57 @@ textarea:focus {
   gap: 14px;
 }
 
+.agentToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.agentMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.scopeGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scopeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: #fffdfa;
+  color: var(--text-main);
+}
+
+.scopeChip input {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+}
+
+.secretBox {
+  overflow: auto;
+  padding: 12px;
+  border-radius: 6px;
+  background: #1d232c;
+  color: #f7f3ee;
+}
+
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .trackerToolbar select {
   width: auto;
   min-width: 160px;

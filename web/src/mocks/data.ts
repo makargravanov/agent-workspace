@@ -1,4 +1,6 @@
 import type {
+  AgentCredentialSummary,
+  AgentSummary,
   NoteDetail,
   ProjectSummary,
   Session,
@@ -34,6 +36,34 @@ export const mockProjects: ProjectSummary[] = [
     slug: 'agent-workspace',
     name: 'agent-workspace',
     status: 'active',
+    created_at: '2026-03-11T10:00:00Z',
+    updated_at: '2026-03-11T10:00:00Z',
+  },
+];
+
+export const mockAgents: AgentSummary[] = [
+  {
+    id: '00000000-0000-0000-0000-000000000030',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    key: 'automation-bot',
+    display_name: 'Automation Bot',
+    status: 'active',
+    created_at: '2026-03-11T10:00:00Z',
+    updated_at: '2026-03-11T10:00:00Z',
+  },
+];
+
+export const mockAgentCredentials: AgentCredentialSummary[] = [
+  {
+    id: '00000000-0000-0000-0000-000000000031',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    project_id: null,
+    agent_id: '00000000-0000-0000-0000-000000000030',
+    label: 'cli-local',
+    secret_prefix: 'awsk_',
+    scope_policy: ['tasks:read', 'notes:write'],
+    status: 'active',
+    expires_at: null,
     created_at: '2026-03-11T10:00:00Z',
     updated_at: '2026-03-11T10:00:00Z',
   },

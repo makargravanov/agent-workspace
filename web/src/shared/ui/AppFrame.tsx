@@ -3,6 +3,7 @@ import {
   BriefcaseBusiness,
   CheckSquare,
   FolderKanban,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   StickyNote,
@@ -12,9 +13,8 @@ import type { ReactNode } from 'react';
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { logout } from '../../api/auth';
 import { queryKeys } from '../../api/query-keys';
-import { useDeleteProject, useDeleteWorkspace } from '../../hooks/useWorkspaces';
+import { useDeleteProject, useDeleteWorkspace, useProject, useProjects, useWorkspace, useWorkspaces } from '../../hooks/useWorkspaces';
 import { useSession } from '../../hooks/useSession';
-import { useProject, useProjects, useWorkspace, useWorkspaces } from '../../hooks/useWorkspaces';
 import { getErrorMessage } from '../lib/errors';
 
 export function AppFrame({ children }: { children: ReactNode }) {
@@ -121,6 +121,19 @@ export function AppFrame({ children }: { children: ReactNode }) {
             )}
           </nav>
         ) : null}
+
+        {workspaceSlug ? (
+          <nav className="sidebarSection" aria-label="Агенты">
+            <span className="sidebarLabel">Агенты</span>
+            <NavLink
+              to={`/workspaces/${workspaceSlug}/agents`}
+              className={({ isActive }) => `sidebarLink${isActive ? ' isActive' : ''}`}
+            >
+              <KeyRound size={16} />
+              <span>Agents</span>
+            </NavLink>
+          </nav>
+        ) : null}
       </aside>
 
       <main className="appMain">
@@ -164,26 +177,26 @@ export function AppFrame({ children }: { children: ReactNode }) {
           ) : null}
 
           <div className="topBarActions">
-          <div className="actorMeta">
-            <span>{actor?.actor_kind ?? 'human'}</span>
-            <strong>{actor?.role ?? 'member'}</strong>
-          </div>
-          {(canDeleteWorkspace || canDeleteProject) ? (
+            <div className="actorMeta">
+              <span>{actor?.actor_kind ?? 'human'}</span>
+              <strong>{actor?.role ?? 'member'}</strong>
+            </div>
+            {(canDeleteWorkspace || canDeleteProject) ? (
+              <button
+                type="button"
+                className="iconButton dangerIconButton"
+                onClick={handleDeleteCurrent}
+                disabled={deleting}
+                title={canDeleteProject ? 'Удалить проект' : 'Удалить рабочее пространство'}
+                aria-label={canDeleteProject ? 'Удалить проект' : 'Удалить рабочее пространство'}
+              >
+                <Trash2 size={18} />
+              </button>
+            ) : null}
             <button
               type="button"
-              className="iconButton dangerIconButton"
-              onClick={handleDeleteCurrent}
-              disabled={deleting}
-              title={canDeleteProject ? 'Удалить проект' : 'Удалить рабочее пространство'}
-              aria-label={canDeleteProject ? 'Удалить проект' : 'Удалить рабочее пространство'}
-            >
-              <Trash2 size={18} />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="iconButton"
-            onClick={() => logoutMutation.mutate()}
+              className="iconButton"
+              onClick={() => logoutMutation.mutate()}
               disabled={logoutMutation.isPending}
               title="Выйти"
               aria-label="Выйти"
