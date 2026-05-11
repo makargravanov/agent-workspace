@@ -128,19 +128,22 @@ h3 {
 }
 
 .appShell {
+  --rail-width: 72px;
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
   min-height: 100vh;
   background: var(--bg-canvas);
 }
 
 .appShell.railExpanded {
-  grid-template-columns: 248px minmax(0, 1fr);
+  --rail-width: 248px;
 }
 
 .appRail {
   position: sticky;
   top: 0;
+  width: var(--rail-width);
+  min-width: var(--rail-width);
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -148,8 +151,10 @@ h3 {
   align-items: center;
   gap: 20px;
   padding: 16px 0;
+  overflow: hidden;
   border-right: 1px solid var(--border-soft);
   background: var(--bg-rail);
+  z-index: 20;
 }
 
 .appRail.isExpanded {
@@ -687,6 +692,7 @@ textarea:focus {
 
 .documentPageSurface {
   background: var(--bg-panel);
+  padding-inline: 32px;
 }
 
 .documentPageHeader {
@@ -1636,6 +1642,21 @@ textarea:focus {
 }
 
 @media (max-width: 1180px) {
+  .appShell.railExpanded {
+    --rail-width: 72px;
+  }
+
+  .appRail.isExpanded {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 248px;
+    min-width: 248px;
+    height: 100vh;
+    border-right: 1px solid var(--border-soft);
+    box-shadow: 0 12px 28px rgba(9, 30, 66, 0.12);
+  }
+
   .documentsIndexLayout {
     grid-template-columns: 1fr;
   }
@@ -1669,11 +1690,14 @@ textarea:focus {
   }
 
   .appShell.railExpanded {
+    --rail-width: 72px;
     grid-template-columns: 1fr;
   }
 
   .appRail {
     position: static;
+    width: auto;
+    min-width: 0;
     height: auto;
     flex-direction: row;
     justify-content: space-between;
@@ -1683,8 +1707,13 @@ textarea:focus {
   }
 
   .appRail.isExpanded {
+    position: static;
+    width: auto;
+    min-width: 0;
+    height: auto;
     align-items: center;
     padding: 12px 16px;
+    box-shadow: none;
   }
 
   .appRailGroup {
@@ -1745,6 +1774,10 @@ textarea:focus {
 @media (max-width: 720px) {
   .appContent {
     padding: 16px;
+  }
+
+  .documentPageSurface {
+    padding-inline: 20px;
   }
 
   .actionBanner {
