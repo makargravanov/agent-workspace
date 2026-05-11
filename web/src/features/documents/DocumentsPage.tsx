@@ -758,6 +758,44 @@ function DocumentMoveControl({
   );
 }
 
+function EditorDocumentTreeItem({
+  node,
+  workspaceSlug,
+  projectSlug,
+  currentDocumentId,
+}: {
+  node: DocumentTreeNode;
+  workspaceSlug: string;
+  projectSlug: string;
+  currentDocumentId: string | null;
+}) {
+  return (
+    <div className="editorTreeItem">
+      <Link
+        className={`editorTreeLink${node.document.id === currentDocumentId ? ' isCurrent' : ''}`}
+        style={{ paddingLeft: `${12 + node.depth * 14}px` }}
+        to={makeDocumentPath(workspaceSlug, projectSlug, node.document.id)}
+      >
+        <strong>{node.document.title}</strong>
+        <span>{node.document.slug}</span>
+      </Link>
+      {node.children.length > 0 ? (
+        <div className="editorTreeChildren">
+          {node.children.map((child) => (
+            <EditorDocumentTreeItem
+              key={child.document.id}
+              node={child}
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+              currentDocumentId={currentDocumentId}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function DocumentEditor({
   mode,
   document,
@@ -798,6 +836,7 @@ export function DocumentEditor({
   const [activeSuggestion, setActiveSuggestion] = useState(0);
   const [caretPosition, setCaretPosition] = useState(bodyMd.length);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const gutterRef = useRef<HTMLDivElement | null>(null);
   const formId = `document-editor-${mode}`;
@@ -897,6 +936,12 @@ export function DocumentEditor({
       return;
     }
 
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      applyLinkSuggestion(linkSuggestions[activeSuggestion] ?? linkSuggestions[0]);
+      return;
+    }
+
     if (event.key === 'Escape') {
       setActiveSuggestion(0);
     }
@@ -910,6 +955,7 @@ export function DocumentEditor({
     () => createMarkdownComponents(workspaceSlug, projectSlug),
     [workspaceSlug, projectSlug],
   );
+  const documentTree = useMemo(() => buildDocumentTree(documents), [documents]);
   const lineNumbers = useMemo(() => {
     const totalLines = Math.max(1, bodyMd.split('\n').length);
     return Array.from({ length: totalLines }, (_, index) => index + 1);
@@ -934,6 +980,13 @@ export function DocumentEditor({
         </div>
 
         <div className="rowActions">
+          <button
+            type="button"
+            className="secondaryButton compactButton"
+            onClick={() => setInspectorOpen((value) => !value)}
+          >
+            <span>{inspectorOpen ? 'Скрыть свойства' : 'Свойства'}</span>
+          </button>
           <button
             type="submit"
             form={formId}
@@ -971,159 +1024,180 @@ export function DocumentEditor({
           Только просмотр. Для изменения документа нужны права editor или owner.
         </div>
       ) : (
-        <div className="documentEditorLayout">
-          <form id={formId} className="documentEditorFormPane" onSubmit={handleSubmit}>
-            <section className="documentEditorSection">
-              <div className="documentsPaneHeader">
-                <h3>Метаданные</h3>
-              </div>
-              <div className="formGrid formGridWide">
-                <label className="field">
-                  <span>Название</span>
-                  <input
-                    value={title}
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      setTitle(nextValue);
-                      if (!slugEdited) {
-                        setSlug(slugify(nextValue));
-                      }
-                    }}
-                    placeholder="Руководство по проекту"
-                    required
-                  />
-                </label>
-                <label className="field">
-                  <span>Slug</span>
-                  <input
-                    value={slug}
-                    onChange={(event) => {
-                      setSlug(event.target.value);
-                      setSlugEdited(true);
-                    }}
-                    placeholder="project-guide"
-                    required
-                  />
-                </label>
-                <label className="field">
-                  <span>Status</span>
-                  <select
-                    value={status}
-                    onChange={(event) => setStatus(event.target.value as DocumentStatus)}
-                  >
-                    <option value="draft">Черновик</option>
-                    <option value="published">Опубликован</option>
-                    <option value="archived">Архив</option>
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Родительский документ</span>
-                  <select
-                    value={parentDocumentId}
-                    onChange={(event) => setParentDocumentId(event.target.value)}
-                    disabled={documentsQuery.isLoading}
-                  >
-                    <option value="">Корневой документ</option>
-                    {parentOptions.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {mode === 'edit' ? (
+        <form id={formId} className={`documentEditorWorkbench${inspectorOpen ? ' inspectorOpen' : ''}`} onSubmit={handleSubmit}>
+          {inspectorOpen ? (
+            <aside className="documentEditorInspector">
+              <section className="documentInspectorSection">
+                <div className="documentInspectorHeader">
+                  <h3>Документы</h3>
+                  <span>{documents.length}</span>
+                </div>
+                <div className="documentInspectorTree">
+                  {documentTree.map((node) => (
+                    <EditorDocumentTreeItem
+                      key={node.document.id}
+                      node={node}
+                      workspaceSlug={workspaceSlug}
+                      projectSlug={projectSlug}
+                      currentDocumentId={document?.id ?? null}
+                    />
+                  ))}
+                </div>
+              </section>
+
+              <section className="documentInspectorSection">
+                <div className="documentInspectorHeader">
+                  <h3>Свойства</h3>
+                </div>
+                <div className="documentInspectorFields">
                   <label className="field">
-                    <span>Version</span>
-                    <input value={version} readOnly />
+                    <span>Название</span>
+                    <input
+                      value={title}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setTitle(nextValue);
+                        if (!slugEdited) {
+                          setSlug(slugify(nextValue));
+                        }
+                      }}
+                      placeholder="Руководство по проекту"
+                      required
+                    />
                   </label>
+                  <label className="field">
+                    <span>Slug</span>
+                    <input
+                      value={slug}
+                      onChange={(event) => {
+                        setSlug(event.target.value);
+                        setSlugEdited(true);
+                      }}
+                      placeholder="project-guide"
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Status</span>
+                    <select
+                      value={status}
+                      onChange={(event) => setStatus(event.target.value as DocumentStatus)}
+                    >
+                      <option value="draft">Черновик</option>
+                      <option value="published">Опубликован</option>
+                      <option value="archived">Архив</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Родитель</span>
+                    <select
+                      value={parentDocumentId}
+                      onChange={(event) => setParentDocumentId(event.target.value)}
+                      disabled={documentsQuery.isLoading}
+                    >
+                      <option value="">Корневой документ</option>
+                      {parentOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {mode === 'edit' ? (
+                    <label className="field">
+                      <span>Version</span>
+                      <input value={version} readOnly />
+                    </label>
+                  ) : null}
+                </div>
+                {documentsQuery.error ? (
+                  <p className="warningText">
+                    Не удалось загрузить дерево документов: {getErrorMessage(documentsQuery.error)}
+                  </p>
+                ) : null}
+              </section>
+            </aside>
+          ) : null}
+
+          <section className="documentEditorMainPane">
+            <div className="documentEditorSurfaceHeader">
+              <div className="documentEditorSurfaceTitle">
+                <strong>body.md</strong>
+                <span>{lineNumbers.length} lines</span>
+              </div>
+              <div className="documentEditorHintControl">
+                <button
+                  type="button"
+                  className={`editorHelpButton${helpOpen ? ' isActive' : ''}`}
+                  onClick={() => setHelpOpen((value) => !value)}
+                  aria-expanded={helpOpen}
+                  aria-label="Справка по markdown-ссылкам"
+                  title="Справка по markdown-ссылкам"
+                >
+                  <Info size={14} />
+                </button>
+                {helpOpen ? (
+                  <div className="documentEditorHintPopover">
+                    <strong>Ссылки на документы</strong>
+                    <span>`[[slug]]` или `[[slug|Название ссылки]]`</span>
+                    <strong>Ссылки на строки</strong>
+                    <span>`[[slug#L12-L18]]`</span>
+                    <strong>Автодополнение</strong>
+                    <span>`[[` открывает список, `Enter` выбирает, `Tab` заменяет, стрелки двигают выбор.</span>
+                  </div>
                 ) : null}
               </div>
-              {documentsQuery.error ? (
-                <p className="warningText">
-                  Не удалось загрузить дерево документов: {getErrorMessage(documentsQuery.error)}
-                </p>
-              ) : null}
-            </section>
+            </div>
 
-            <section className="documentEditorSection">
-              <div className="documentsPaneHeader">
-                <h3>Markdown</h3>
-                <div className="documentEditorHintControl">
-                  <button
-                    type="button"
-                    className={`editorHelpButton${helpOpen ? ' isActive' : ''}`}
-                    onClick={() => setHelpOpen((value) => !value)}
-                    aria-expanded={helpOpen}
-                    aria-label="Справка по markdown-ссылкам"
-                    title="Справка по markdown-ссылкам"
-                  >
-                    <Info size={14} />
-                  </button>
-                  {helpOpen ? (
-                    <div className="documentEditorHintPopover">
-                      <strong>Ссылки на документы</strong>
-                      <span>`[[slug]]` или `[[slug|Название ссылки]]`</span>
-                      <strong>Ссылки на строки</strong>
-                      <span>`[[slug#L12-L18]]`</span>
-                      <strong>Автодополнение</strong>
-                      <span>`[[` открывает список, `Enter` выбирает, стрелки двигают выбор.</span>
-                    </div>
-                  ) : null}
+            <div className="documentCodeEditorPane">
+              <div className="documentCodeEditor">
+                <div ref={gutterRef} className="documentEditorGutter" aria-hidden="true">
+                  {lineNumbers.map((lineNumber) => (
+                    <span key={lineNumber}>{lineNumber}</span>
+                  ))}
                 </div>
-              </div>
-              <div className="documentCodeEditorPane">
-                <div className="documentCodeEditorHeader">
-                  <strong>body.md</strong>
-                  <span>{lineNumbers.length} lines</span>
-                </div>
-                <div className="documentCodeEditor">
-                  <div ref={gutterRef} className="documentEditorGutter" aria-hidden="true">
-                    {lineNumbers.map((lineNumber) => (
-                      <span key={lineNumber}>{lineNumber}</span>
+                <textarea
+                  ref={textareaRef}
+                  className="documentEditorTextarea"
+                  value={bodyMd}
+                  onChange={(event) => {
+                    setBodyMd(event.target.value);
+                    setCaretPosition(event.target.selectionStart ?? event.target.value.length);
+                    setActiveSuggestion(0);
+                  }}
+                  onClick={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
+                  onKeyUp={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
+                  onKeyDown={handleTextareaKeyDown}
+                  onScroll={handleEditorScroll}
+                  spellCheck={false}
+                  rows={24}
+                  placeholder="# Документ"
+                  required
+                />
+                {linkAutocomplete && linkSuggestions.length > 0 ? (
+                  <div className="documentLinkAutocomplete" role="listbox" aria-label="Подсказки ссылок">
+                    {linkSuggestions.map((suggestedDocument, index) => (
+                      <button
+                        key={suggestedDocument.id}
+                        type="button"
+                        className={`documentLinkSuggestion${index === activeSuggestion ? ' isActive' : ''}`}
+                        onClick={() => applyLinkSuggestion(suggestedDocument)}
+                      >
+                        <div className="documentLinkSuggestionMain">
+                          <strong>{suggestedDocument.slug}</strong>
+                          <span>{suggestedDocument.title}</span>
+                        </div>
+                      </button>
                     ))}
-                  </div>
-                  <textarea
-                    ref={textareaRef}
-                    className="documentEditorTextarea"
-                    value={bodyMd}
-                    onChange={(event) => {
-                      setBodyMd(event.target.value);
-                      setCaretPosition(event.target.selectionStart ?? event.target.value.length);
-                      setActiveSuggestion(0);
-                    }}
-                    onClick={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
-                    onKeyUp={(event) => setCaretPosition(event.currentTarget.selectionStart ?? 0)}
-                    onKeyDown={handleTextareaKeyDown}
-                    onScroll={handleEditorScroll}
-                    spellCheck={false}
-                    rows={24}
-                    placeholder="# Документ"
-                    required
-                  />
-                  {linkAutocomplete && linkSuggestions.length > 0 ? (
-                    <div className="documentLinkAutocomplete" role="listbox" aria-label="Подсказки ссылок">
-                      {linkSuggestions.map((suggestedDocument, index) => (
-                        <button
-                          key={suggestedDocument.id}
-                          type="button"
-                          className={`documentLinkSuggestion${index === activeSuggestion ? ' isActive' : ''}`}
-                          onClick={() => applyLinkSuggestion(suggestedDocument)}
-                        >
-                          <div className="documentLinkSuggestionMain">
-                            <strong>{suggestedDocument.title}</strong>
-                            <span>{suggestedDocument.slug}</span>
-                          </div>
-                          <span className="documentLinkSuggestionKind">
-                            {index === activeSuggestion ? 'Enter' : 'Document'}
-                          </span>
-                        </button>
-                      ))}
+                    <div className="documentLinkAutocompleteFooter">
+                      <span>Press Enter to insert</span>
+                      <span>Tab to replace</span>
                     </div>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
               </div>
-            </section>
-          </form>
+            </div>
+          </section>
 
           <aside className="documentEditorPreviewPane">
             <div className="documentsPaneHeader">
@@ -1169,7 +1243,7 @@ export function DocumentEditor({
               </div>
             </article>
           </aside>
-        </div>
+        </form>
       )}
 
       {hasConflict(error) ? (
