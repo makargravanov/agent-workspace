@@ -11,7 +11,52 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      run_backend_tests: ${{ steps.filter.outputs.run_backend_tests }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect backend-impacting changes
+        id: filter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_backend_tests=true
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+            mapfile -t changed_files < <(git diff --name-only "$base" "$head")
+
+            if [ "${#changed_files[@]}" -gt 0 ]; then
+              run_backend_tests=false
+              for file in "${changed_files[@]}"; do
+                case "$file" in
+                  web/*)
+                    ;;
+                  *)
+                    run_backend_tests=true
+                    break
+                    ;;
+                esac
+              done
+            fi
+          fi
+
+          echo "run_backend_tests=$run_backend_tests" >> "$GITHUB_OUTPUT"
+
   test-api-sqlite:
+    needs: changes
+    if: needs.changes.outputs.run_backend_tests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -26,6 +71,8 @@ jobs:
         run: cargo test -p agent-workspace-api
 
   test-api-postgres:
+    needs: changes
+    if: needs.changes.outputs.run_backend_tests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -59,8 +106,10 @@ jobs:
 
   deploy:
     needs:
+      - changes
       - test-api-sqlite
       - test-api-postgres
+    if: ${{ always() && (needs.changes.outputs.run_backend_tests != 'true' || (needs.test-api-sqlite.result == 'success' && needs.test-api-postgres.result == 'success')) }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20
