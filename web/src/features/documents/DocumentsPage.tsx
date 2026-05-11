@@ -83,19 +83,47 @@ export function DocumentsIndexPage() {
     ? reparentDocumentMutation.variables?.documentId ?? null
     : null;
 
-  function moveDocument(documentId: string, parentDocumentId: string | null) {
-    const currentDocument = documents.find((item) => item.id === documentId);
+  async function reparentWithRetry(
+    documentId: string,
+    parentDocumentId: string | null,
+    sourceDocuments: DocumentDetail[] = documents,
+  ) {
+    let currentDocument = sourceDocuments.find((item) => item.id === documentId);
     if (!currentDocument) {
-      return;
+      return null;
     }
 
-    reparentDocumentMutation.mutate({
-      documentId,
-      payload: {
-        version: currentDocument.version,
-        parent_document_id: parentDocumentId,
-      },
-    });
+    try {
+      return await reparentDocumentMutation.mutateAsync({
+        documentId,
+        payload: {
+          version: currentDocument.version,
+          parent_document_id: parentDocumentId,
+        },
+      });
+    } catch (error) {
+      if (!hasConflict(error)) {
+        throw error;
+      }
+
+      const refreshed = await documentsQuery.refetch();
+      currentDocument = refreshed.data?.items.find((item) => item.id === documentId);
+      if (!currentDocument) {
+        throw error;
+      }
+
+      return reparentDocumentMutation.mutateAsync({
+        documentId,
+        payload: {
+          version: currentDocument.version,
+          parent_document_id: parentDocumentId,
+        },
+      });
+    }
+  }
+
+  function moveDocument(documentId: string, parentDocumentId: string | null) {
+    void reparentWithRetry(documentId, parentDocumentId);
   }
 
   function liftDocument(documentId: string) {
@@ -114,24 +142,27 @@ export function DocumentsIndexPage() {
 
   async function repairCycles() {
     setRepairError(null);
-    const workingDocuments = new Map(documents.map((item) => [item.id, item]));
 
     try {
-      for (const documentId of cycleInfo.cycleDocumentIds) {
-        const currentDocument = workingDocuments.get(documentId);
-        if (!currentDocument || currentDocument.parent_document_id === null) {
+      const refreshed = await documentsQuery.refetch();
+      let latestDocuments = refreshed.data?.items ?? documents;
+      const latestCycleInfo = detectCycleInfo(latestDocuments);
+
+      for (const documentId of latestCycleInfo.cycleDocumentIds) {
+        const currentDocument = latestDocuments.find((item) => item.id === documentId);
+        if (!currentDocument?.parent_document_id) {
           continue;
         }
 
-        const updated = await reparentDocumentMutation.mutateAsync({
-          documentId,
-          payload: {
-            version: currentDocument.version,
-            parent_document_id: null,
-          },
-        });
-        workingDocuments.set(documentId, updated);
+        const updated = await reparentWithRetry(documentId, null, latestDocuments);
+        if (!updated) {
+          continue;
+        }
+
+        latestDocuments = latestDocuments.map((item) => (item.id === updated.id ? updated : item));
       }
+
+      await documentsQuery.refetch();
     } catch (error) {
       setRepairError(getErrorMessage(error));
     }
