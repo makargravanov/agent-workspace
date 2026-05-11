@@ -98,23 +98,39 @@ export function DocumentsIndexPage() {
     });
   }
 
+  function liftDocument(documentId: string) {
+    const currentDocument = documents.find((item) => item.id === documentId);
+    if (!currentDocument) {
+      return;
+    }
+
+    if (!currentDocument.parent_document_id) {
+      return;
+    }
+
+    const parentDocument = documents.find((item) => item.id === currentDocument.parent_document_id);
+    moveDocument(documentId, parentDocument?.parent_document_id ?? null);
+  }
+
   async function repairCycles() {
     setRepairError(null);
+    const workingDocuments = new Map(documents.map((item) => [item.id, item]));
 
     try {
-      for (const documentId of cycleInfo.repairDocumentIds) {
-        const currentDocument = documents.find((item) => item.id === documentId);
+      for (const documentId of cycleInfo.cycleDocumentIds) {
+        const currentDocument = workingDocuments.get(documentId);
         if (!currentDocument || currentDocument.parent_document_id === null) {
           continue;
         }
 
-        await reparentDocumentMutation.mutateAsync({
+        const updated = await reparentDocumentMutation.mutateAsync({
           documentId,
           payload: {
             version: currentDocument.version,
             parent_document_id: null,
           },
         });
+        workingDocuments.set(documentId, updated);
       }
     } catch (error) {
       setRepairError(getErrorMessage(error));
@@ -219,6 +235,7 @@ export function DocumentsIndexPage() {
                   draggedDocumentId={draggedDocumentId}
                   setDraggedDocumentId={setDraggedDocumentId}
                   onMoveDocument={moveDocument}
+                  onLiftDocument={liftDocument}
                   reparentPendingId={reparentPendingId}
                 />
               ))}
@@ -534,6 +551,7 @@ function DocumentTreeItem({
   draggedDocumentId,
   setDraggedDocumentId,
   onMoveDocument,
+  onLiftDocument,
   reparentPendingId,
 }: {
   node: DocumentTreeNode;
@@ -544,6 +562,7 @@ function DocumentTreeItem({
   draggedDocumentId: string | null;
   setDraggedDocumentId: (documentId: string | null) => void;
   onMoveDocument: (documentId: string, parentDocumentId: string | null) => void;
+  onLiftDocument: (documentId: string) => void;
   reparentPendingId: string | null;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -629,6 +648,16 @@ function DocumentTreeItem({
               compact
             />
           ) : null}
+          {canEdit && node.document.parent_document_id ? (
+            <button
+              type="button"
+              className="secondaryButton compactButton documentLiftTrigger"
+              onClick={() => onLiftDocument(node.document.id)}
+              disabled={reparentPendingId === node.document.id}
+            >
+              Вверх
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -647,6 +676,7 @@ function DocumentTreeItem({
               draggedDocumentId={draggedDocumentId}
               setDraggedDocumentId={setDraggedDocumentId}
               onMoveDocument={onMoveDocument}
+              onLiftDocument={onLiftDocument}
               reparentPendingId={reparentPendingId}
             />
           ))}
@@ -684,6 +714,8 @@ function DocumentMoveControl({
   );
   const [isOpen, setIsOpen] = useState(false);
   const [nextParentId, setNextParentId] = useState(document.parent_document_id ?? '');
+  const parentDocument = documents.find((item) => item.id === document.parent_document_id);
+  const liftedParentId = parentDocument?.parent_document_id ?? '';
 
   function handleMove() {
     reparentDocumentMutation.mutate(
@@ -737,6 +769,14 @@ function DocumentMoveControl({
               disabled={reparentDocumentMutation.isPending}
             >
               Применить
+            </button>
+            <button
+              type="button"
+              className="secondaryButton compactButton"
+              onClick={() => setNextParentId(liftedParentId)}
+              disabled={!document.parent_document_id || reparentDocumentMutation.isPending}
+            >
+              На уровень выше
             </button>
             <button
               type="button"
