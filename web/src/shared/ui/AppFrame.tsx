@@ -14,6 +14,7 @@ import {
   Plug,
   StickyNote,
   Trash2,
+  Users,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -73,7 +74,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
     },
   });
 
-  const contextLinks = getContextLinks(workspaceSlug, projectSlug);
+  const contextLinks = getContextLinks(workspaceSlug, projectSlug, actor?.role);
 
   function handleDeleteCurrent() {
     if (projectSlug) {
@@ -136,6 +137,14 @@ export function AppFrame({ children }: { children: ReactNode }) {
                 to={`/workspaces/${workspaceSlug}/projects/${projectSlug}`}
                 icon={LayoutDashboard}
                 label={currentProject?.name ?? projectName ?? projectSlug}
+                expanded={railExpanded}
+              />
+            ) : null}
+            {workspaceSlug && actor?.role === 'owner' ? (
+              <RailLink
+                to={`/workspaces/${workspaceSlug}/members`}
+                icon={Users}
+                label="Members"
                 expanded={railExpanded}
               />
             ) : null}
@@ -276,9 +285,9 @@ function RailLink({
   );
 }
 
-function getContextLinks(workspaceSlug: string, projectSlug: string): ContextLink[] {
+function getContextLinks(workspaceSlug: string, projectSlug: string, actorRole?: string): ContextLink[] {
   if (workspaceSlug && projectSlug) {
-    return [
+    const links: ContextLink[] = [
       {
         icon: LayoutDashboard,
         label: 'Обзор',
@@ -311,10 +320,18 @@ function getContextLinks(workspaceSlug: string, projectSlug: string): ContextLin
         to: `/workspaces/${workspaceSlug}/projects/${projectSlug}/activity`,
       },
     ];
+    if (actorRole === 'owner') {
+      links.push({
+        icon: Users,
+        label: 'Members',
+        to: `/workspaces/${workspaceSlug}/projects/${projectSlug}/members`,
+      });
+    }
+    return links;
   }
 
   if (workspaceSlug) {
-    return [
+    const links: ContextLink[] = [
       {
         icon: LayoutDashboard,
         label: 'Проекты',
@@ -337,6 +354,14 @@ function getContextLinks(workspaceSlug: string, projectSlug: string): ContextLin
         to: `/workspaces/${workspaceSlug}/activity`,
       },
     ];
+    if (actorRole === 'owner') {
+      links.splice(1, 0, {
+        icon: Users,
+        label: 'Members',
+        to: `/workspaces/${workspaceSlug}/members`,
+      });
+    }
+    return links;
   }
 
   return [];

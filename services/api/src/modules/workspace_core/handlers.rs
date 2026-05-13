@@ -7,7 +7,10 @@ use axum::{
 use uuid::Uuid;
 
 use crate::http::{
-    access::{require_authenticated_human, require_human_workspace_role, WorkspaceRole},
+    access::{
+        require_authenticated_human, require_human_workspace_role, require_project_access,
+        WorkspaceRole,
+    },
     actor::ActorContext,
     audit::{record_audit, AuditEvent},
     error::ApiError,
@@ -22,6 +25,11 @@ use super::{domain, repo};
 struct CurrentMemberIdentityRow {
     external_subject: String,
     display_name: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct RoleRow {
+    role: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -273,12 +281,7 @@ async fn list_projects(
     )
     .await?;
 
-    let items = repo::list_projects(&state.pool, &workspace.id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "list_projects db error");
-            ApiError::internal(&request_id.0, "failed to list projects")
-        })?;
+    let items = list_accessible_projects(&state, &actor, &workspace.id, &request_id.0).await?;
 
     Ok(ApiResponse {
         data: ListData {
@@ -366,15 +369,6 @@ async fn get_project(
     Path((workspace_slug, project_slug)): Path<(String, String)>,
 ) -> Result<ApiResponse<domain::Project>, ApiError> {
     let workspace = resolve_workspace(&state, &request_id, &workspace_slug).await?;
-    require_human_workspace_role(
-        &state.pool,
-        &actor,
-        &workspace.id,
-        WorkspaceRole::Viewer,
-        &request_id.0,
-    )
-    .await?;
-
     let project = repo::get_project_by_slug(&state.pool, &workspace.id, &project_slug)
         .await
         .map_err(|e| {
@@ -387,6 +381,17 @@ async fn get_project(
                 format!("project '{project_slug}' not found in workspace '{workspace_slug}'"),
             )
         })?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &workspace.id,
+        &project.id,
+        WorkspaceRole::Viewer,
+        None,
+        &request_id.0,
+    )
+    .await?;
 
     Ok(ApiResponse {
         data: project,
@@ -605,6 +610,74 @@ async fn resolve_workspace(
             ApiError::internal(&request_id.0, "failed to resolve workspace")
         })?
         .ok_or_else(|| ApiError::not_found(&request_id.0, format!("workspace '{slug}' not found")))
+}
+
+async fn list_accessible_projects(
+    state: &AppState,
+    actor: &ActorContext,
+    workspace_id: &str,
+    request_id: &str,
+) -> Result<Vec<domain::Project>, ApiError> {
+    let role = sqlx::query_as::<_, RoleRow>(
+        "SELECT target.role AS role
+         FROM workspace_members current
+         JOIN workspace_members target
+           ON target.external_subject = current.external_subject
+         WHERE CAST(current.id AS TEXT) = $1
+           AND current.status = 'active'
+           AND CAST(target.workspace_id AS TEXT) = $2
+           AND target.status = 'active'
+         LIMIT 1",
+    )
+    .bind(&actor.actor_id)
+    .bind(workspace_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, workspace_id = %workspace_id, "list accessible projects role lookup failed");
+        ApiError::internal(request_id, "failed to resolve workspace role")
+    })?
+    .ok_or_else(|| ApiError::forbidden(request_id, "actor does not have access to this workspace"))?;
+
+    if role.role == "owner" {
+        return repo::list_projects(&state.pool, workspace_id)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "list_projects db error");
+                ApiError::internal(request_id, "failed to list projects")
+            });
+    }
+
+    sqlx::query_as::<_, domain::Project>(
+        "SELECT CAST(p.id AS TEXT) AS id,
+                CAST(p.workspace_id AS TEXT) AS workspace_id,
+                p.slug,
+                p.name,
+                p.status,
+                CAST(p.created_at AS TEXT) AS created_at,
+                CAST(p.updated_at AS TEXT) AS updated_at
+         FROM workspace_members current
+         JOIN workspace_members target
+           ON target.external_subject = current.external_subject
+         JOIN project_members pm
+           ON pm.workspace_member_id = target.id
+         JOIN projects p
+           ON p.id = pm.project_id
+         WHERE CAST(current.id AS TEXT) = $1
+           AND current.status = 'active'
+           AND CAST(target.workspace_id AS TEXT) = $2
+           AND target.status = 'active'
+           AND pm.status = 'active'
+         ORDER BY p.created_at DESC",
+    )
+    .bind(&actor.actor_id)
+    .bind(workspace_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, workspace_id = %workspace_id, "list accessible projects failed");
+        ApiError::internal(request_id, "failed to list projects")
+    })
 }
 
 /// Minimal slug validation: non-empty, lowercase ASCII + digits + hyphens.

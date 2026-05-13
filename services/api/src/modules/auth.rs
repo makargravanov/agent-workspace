@@ -27,6 +27,7 @@ const DEFAULT_DEV_SUBJECT: &str = "dev:owner-1";
 const DEFAULT_DEV_DISPLAY_NAME: &str = "Dev Owner";
 const SESSION_TTL_DAYS: i64 = 7;
 const GITHUB_OAUTH_STATE_COOKIE_NAME: &str = "aw_github_state";
+const GITHUB_INVITE_COOKIE_NAME: &str = "aw_invite";
 const GITHUB_OAUTH_STATE_TTL_SECONDS: i64 = 10 * 60;
 const DEFAULT_GITHUB_AUTHORIZE_URL: &str = "https://github.com/login/oauth/authorize";
 const DEFAULT_GITHUB_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
@@ -53,6 +54,11 @@ pub struct DevLoginRequest {
 struct GithubCallbackQuery {
     code: Option<String>,
     state: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubStartQuery {
+    invite: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -103,12 +109,23 @@ struct MemberRow {
 }
 
 #[derive(sqlx::FromRow)]
+struct InviteRow {
+    id: String,
+    workspace_id: String,
+    role: String,
+    project_access_json: String,
+}
+
+#[derive(sqlx::FromRow)]
 struct SessionActorRow {
     workspace_id: String,
     role: String,
 }
 
-async fn github_start(request_id: RequestId) -> Result<(HeaderMap, Redirect), ApiError> {
+async fn github_start(
+    request_id: RequestId,
+    Query(query): Query<GithubStartQuery>,
+) -> Result<(HeaderMap, Redirect), ApiError> {
     let cfg = GithubOAuthConfig::from_env(&request_id.0)?;
     let state = format!("gho_{}_{}", Uuid::new_v4(), Uuid::new_v4());
     let redirect_url = Url::parse_with_params(
@@ -133,6 +150,14 @@ async fn github_start(request_id: RequestId) -> Result<(HeaderMap, Redirect), Ap
         HeaderValue::from_str(&state_cookie(&state))
             .map_err(|_| ApiError::internal(&request_id.0, "failed to build oauth state cookie"))?,
     );
+    if let Some(invite) = query.invite.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        response_headers.append(
+            header::SET_COOKIE,
+            HeaderValue::from_str(&invite_cookie(invite)).map_err(|_| {
+                ApiError::internal(&request_id.0, "failed to build invite cookie")
+            })?,
+        );
+    }
 
     Ok((response_headers, Redirect::to(redirect_url.as_str())))
 }
@@ -162,9 +187,34 @@ async fn github_callback(
 
     let cfg = GithubOAuthConfig::from_env(&request_id.0)?;
     let profile = exchange_github_code(&cfg, &code, &request_id.0).await?;
-    let member_id =
-        resolve_or_create_github_member(&state.pool, state.db_backend, &profile, &request_id)
+    let invite_token = invite_cookie_from_headers(&headers);
+    let accepted_member_id = accept_workspace_invite(
+        &state.pool,
+        state.db_backend,
+        &profile,
+        invite_token.as_deref(),
+        &request_id,
+    )
+    .await?;
+    let member_id = match accepted_member_id {
+        Some(member_id) => {
+            ensure_identity_if_absent(
+                &state.pool,
+                state.db_backend,
+                &member_id,
+                "github",
+                &profile.provider_subject,
+                &profile.login,
+                &request_id,
+            )
             .await?;
+            member_id
+        }
+        None => {
+            resolve_or_create_github_member(&state.pool, state.db_backend, &profile, &request_id)
+                .await?
+        }
+    };
     let session_cookie_value = create_human_session(
         &state.pool,
         state.db_backend,
@@ -184,6 +234,11 @@ async fn github_callback(
         header::SET_COOKIE,
         HeaderValue::from_str(&expired_cookie(GITHUB_OAUTH_STATE_COOKIE_NAME))
             .map_err(|_| ApiError::internal(&request_id.0, "failed to clear oauth state cookie"))?,
+    );
+    response_headers.append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&expired_cookie(GITHUB_INVITE_COOKIE_NAME))
+            .map_err(|_| ApiError::internal(&request_id.0, "failed to clear invite cookie"))?,
     );
 
     Ok((response_headers, Redirect::to(&cfg.success_redirect_path)))
@@ -697,6 +752,245 @@ async fn ensure_member(
     Ok(id)
 }
 
+async fn ensure_member_with_role(
+    pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
+    workspace_id: &str,
+    external_subject: &str,
+    display_name: &str,
+    role: &str,
+    request_id: &RequestId,
+) -> Result<String, ApiError> {
+    let member_lookup_sql = if db_backend == DatabaseBackend::Postgres {
+        "SELECT CAST(id AS TEXT) AS id
+         FROM workspace_members
+         WHERE workspace_id = CAST($1 AS UUID) AND external_subject = $2"
+    } else {
+        "SELECT CAST(id AS TEXT) AS id
+         FROM workspace_members
+         WHERE workspace_id = $1 AND external_subject = $2"
+    };
+
+    if let Some(row) = sqlx::query_as::<_, MemberRow>(member_lookup_sql)
+        .bind(workspace_id)
+        .bind(external_subject)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "member lookup failed");
+            ApiError::internal(&request_id.0, "failed to resolve workspace member")
+        })?
+    {
+        let update_sql = if db_backend == DatabaseBackend::Postgres {
+            "UPDATE workspace_members
+             SET role = $1,
+                 status = 'active',
+                 display_name = $2,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = CAST($3 AS UUID)"
+        } else {
+            "UPDATE workspace_members
+             SET role = $1,
+                 status = 'active',
+                 display_name = $2,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3"
+        };
+        sqlx::query(update_sql)
+            .bind(role)
+            .bind(display_name)
+            .bind(&row.id)
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, member_id = %row.id, "member activation failed");
+                ApiError::internal(&request_id.0, "failed to activate workspace member")
+            })?;
+        return Ok(row.id);
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let insert_sql = if db_backend == DatabaseBackend::Postgres {
+        "INSERT INTO workspace_members
+         (id, workspace_id, external_subject, display_name, role, status)
+         VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, $5, 'active')"
+    } else {
+        "INSERT INTO workspace_members
+         (id, workspace_id, external_subject, display_name, role, status)
+         VALUES ($1, $2, $3, $4, $5, 'active')"
+    };
+
+    sqlx::query(insert_sql)
+        .bind(&id)
+        .bind(workspace_id)
+        .bind(external_subject)
+        .bind(display_name)
+        .bind(role)
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "member insert failed");
+            ApiError::internal(&request_id.0, "failed to create workspace member")
+        })?;
+
+    Ok(id)
+}
+
+async fn accept_workspace_invite(
+    pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
+    profile: &GithubProfile,
+    invite_token: Option<&str>,
+    request_id: &RequestId,
+) -> Result<Option<String>, ApiError> {
+    let invite = if let Some(token) = invite_token {
+        sqlx::query_as::<_, InviteRow>(
+            "SELECT CAST(id AS TEXT) AS id,
+                    CAST(workspace_id AS TEXT) AS workspace_id,
+                    role,
+                    CAST(project_access_json AS TEXT) AS project_access_json
+             FROM workspace_invites
+             WHERE token_hash = $1
+               AND status = 'pending'
+               AND (expires_at IS NULL OR CAST(expires_at AS TEXT) > $2)
+             ORDER BY created_at
+             LIMIT 1",
+        )
+        .bind(hash_secret(token))
+        .bind(utc_now_text())
+        .fetch_optional(pool)
+        .await
+    } else {
+        sqlx::query_as::<_, InviteRow>(
+            "SELECT CAST(id AS TEXT) AS id,
+                    CAST(workspace_id AS TEXT) AS workspace_id,
+                    role,
+                    CAST(project_access_json AS TEXT) AS project_access_json
+             FROM workspace_invites
+             WHERE lower(github_login) = lower($1)
+               AND status = 'pending'
+               AND (expires_at IS NULL OR CAST(expires_at AS TEXT) > $2)
+             ORDER BY created_at
+             LIMIT 1",
+        )
+        .bind(&profile.login)
+        .bind(utc_now_text())
+        .fetch_optional(pool)
+        .await
+    }
+    .map_err(|e| {
+        tracing::error!(error = %e, login = %profile.login, "invite lookup failed");
+        ApiError::internal(&request_id.0, "failed to resolve workspace invite")
+    })?;
+
+    let Some(invite) = invite else {
+        return Ok(None);
+    };
+
+    let member_id = ensure_member_with_role(
+        pool,
+        db_backend,
+        &invite.workspace_id,
+        &profile.provider_subject,
+        &profile.display_name,
+        &invite.role,
+        request_id,
+    )
+    .await?;
+
+    apply_invite_project_access(
+        pool,
+        db_backend,
+        &invite.workspace_id,
+        &member_id,
+        &invite.project_access_json,
+        request_id,
+    )
+    .await?;
+
+    let update_sql = if db_backend == DatabaseBackend::Postgres {
+        "UPDATE workspace_invites
+         SET status = 'accepted',
+             accepted_by_member_id = CAST($1 AS UUID),
+             accepted_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = CAST($2 AS UUID)"
+    } else {
+        "UPDATE workspace_invites
+         SET status = 'accepted',
+             accepted_by_member_id = $1,
+             accepted_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2"
+    };
+
+    sqlx::query(update_sql)
+        .bind(&member_id)
+        .bind(&invite.id)
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, invite_id = %invite.id, "invite accept update failed");
+            ApiError::internal(&request_id.0, "failed to accept workspace invite")
+        })?;
+
+    Ok(Some(member_id))
+}
+
+#[derive(Debug, Deserialize)]
+struct InviteProjectAccess {
+    project_id: String,
+    role: String,
+}
+
+async fn apply_invite_project_access(
+    pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
+    workspace_id: &str,
+    member_id: &str,
+    project_access_json: &str,
+    request_id: &RequestId,
+) -> Result<(), ApiError> {
+    let access = serde_json::from_str::<Vec<InviteProjectAccess>>(project_access_json)
+        .unwrap_or_default();
+
+    for item in access {
+        if !["editor", "viewer"].contains(&item.role.as_str()) {
+            continue;
+        }
+
+        let access_id = Uuid::new_v4().to_string();
+        let sql = if db_backend == DatabaseBackend::Postgres {
+            "INSERT INTO project_members
+             (id, workspace_id, project_id, workspace_member_id, role, status)
+             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), CAST($3 AS UUID), CAST($4 AS UUID), $5, 'active')
+             ON CONFLICT (project_id, workspace_member_id)
+             DO UPDATE SET role = EXCLUDED.role, status = 'active', updated_at = CURRENT_TIMESTAMP"
+        } else {
+            "INSERT INTO project_members
+             (id, workspace_id, project_id, workspace_member_id, role, status)
+             VALUES ($1, $2, $3, $4, $5, 'active')
+             ON CONFLICT(project_id, workspace_member_id)
+             DO UPDATE SET role = excluded.role, status = 'active', updated_at = CURRENT_TIMESTAMP"
+        };
+
+        sqlx::query(sql)
+            .bind(access_id)
+            .bind(workspace_id)
+            .bind(&item.project_id)
+            .bind(member_id)
+            .bind(&item.role)
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, project_id = %item.project_id, member_id = %member_id, "invite project access upsert failed");
+                ApiError::internal(&request_id.0, "failed to apply invite project access")
+            })?;
+    }
+
+    Ok(())
+}
+
 async fn resolve_member_by_identity(
     pool: &sqlx::AnyPool,
     db_backend: DatabaseBackend,
@@ -841,6 +1135,44 @@ async fn ensure_identity(
     }
 }
 
+async fn ensure_identity_if_absent(
+    pool: &sqlx::AnyPool,
+    db_backend: DatabaseBackend,
+    member_id: &str,
+    provider: &str,
+    provider_subject: &str,
+    display_name: &str,
+    request_id: &RequestId,
+) -> Result<(), ApiError> {
+    let existing: Option<(String,)> = sqlx::query_as(
+        "SELECT CAST(workspace_member_id AS TEXT) FROM human_identities
+         WHERE provider = $1 AND provider_subject = $2",
+    )
+    .bind(provider)
+    .bind(provider_subject)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, provider = %provider, provider_subject = %provider_subject, "identity lookup failed");
+        ApiError::internal(&request_id.0, "failed to resolve human identity")
+    })?;
+
+    if existing.is_some() {
+        return Ok(());
+    }
+
+    ensure_identity(
+        pool,
+        db_backend,
+        member_id,
+        provider,
+        provider_subject,
+        display_name,
+        request_id,
+    )
+    .await
+}
+
 async fn sync_member_display_name(
     pool: &sqlx::AnyPool,
     db_backend: DatabaseBackend,
@@ -960,6 +1292,14 @@ fn state_cookie(state: &str) -> String {
     )
 }
 
+fn invite_cookie(invite: &str) -> String {
+    let secure_attr = secure_cookie_attr();
+    format!(
+        "{GITHUB_INVITE_COOKIE_NAME}={invite}; Path=/; Max-Age={}; HttpOnly; SameSite=Lax{}",
+        GITHUB_OAUTH_STATE_TTL_SECONDS, secure_attr
+    )
+}
+
 fn expired_cookie(name: &str) -> String {
     let secure_attr = secure_cookie_attr();
     format!("{name}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax{secure_attr}")
@@ -978,6 +1318,10 @@ fn secure_cookie_attr() -> &'static str {
 
 fn session_cookie_from_headers(headers: &HeaderMap) -> Option<String> {
     cookie_from_headers(headers, SESSION_COOKIE_NAME)
+}
+
+fn invite_cookie_from_headers(headers: &HeaderMap) -> Option<String> {
+    cookie_from_headers(headers, GITHUB_INVITE_COOKIE_NAME)
 }
 
 fn oauth_state_cookie_from_headers(headers: &HeaderMap) -> Option<String> {
@@ -1333,5 +1677,94 @@ mod tests {
         assert_eq!(body["data"]["actor"]["actor_kind"], "human");
 
         handle.abort();
+    }
+
+    #[tokio::test]
+    async fn pending_invite_by_login_creates_member_and_project_access() {
+        let state = any_test_state().await;
+        let workspace_id = Uuid::new_v4().to_string();
+        let owner_id = Uuid::new_v4().to_string();
+        let project_id = Uuid::new_v4().to_string();
+        let invite_id = Uuid::new_v4().to_string();
+
+        sqlx::query("INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3)")
+            .bind(&workspace_id)
+            .bind("invite-ws")
+            .bind("Invite WS")
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO workspace_members (id, workspace_id, external_subject, display_name, role, status)
+             VALUES ($1, $2, $3, $4, 'owner', 'active')",
+        )
+        .bind(&owner_id)
+        .bind(&workspace_id)
+        .bind("github:user:owner")
+        .bind("Owner")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO projects (id, workspace_id, slug, name, status) VALUES ($1, $2, $3, $4, 'active')")
+            .bind(&project_id)
+            .bind(&workspace_id)
+            .bind("app")
+            .bind("App")
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO workspace_invites
+             (id, workspace_id, github_login, token_hash, role, project_access_json, status, created_by_member_id)
+             VALUES ($1, $2, 'octotest', $3, 'editor', $4, 'pending', $5)",
+        )
+        .bind(&invite_id)
+        .bind(&workspace_id)
+        .bind(hash_secret("token"))
+        .bind(json!([{ "project_id": project_id, "role": "editor" }]).to_string())
+        .bind(&owner_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+        let profile = GithubProfile {
+            provider_subject: "github:user:4242".to_string(),
+            login: "octotest".to_string(),
+            display_name: "Octo Test".to_string(),
+        };
+        let member_id = accept_workspace_invite(
+            &state.pool,
+            state.db_backend,
+            &profile,
+            None,
+            &RequestId("test-req".to_string()),
+        )
+        .await
+        .unwrap()
+        .expect("invite should be accepted");
+
+        let (member_role,): (String,) =
+            sqlx::query_as("SELECT role FROM workspace_members WHERE id = $1")
+                .bind(&member_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(member_role, "editor");
+
+        let (project_role,): (String,) =
+            sqlx::query_as("SELECT role FROM project_members WHERE workspace_member_id = $1")
+                .bind(&member_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(project_role, "editor");
+
+        let (invite_status,): (String,) =
+            sqlx::query_as("SELECT status FROM workspace_invites WHERE id = $1")
+                .bind(&invite_id)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(invite_status, "accepted");
     }
 }

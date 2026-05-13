@@ -32,12 +32,9 @@ export function SearchBox({ workspaceSlug, projectSlug, projects }: SearchBoxPro
   const debouncedQuery = useDebouncedValue(query, 250);
   const searchQuery = useSearch(workspaceSlug, projectSlug, debouncedQuery);
   const navigate = useNavigate();
-  const results = searchQuery.data?.items ?? [];
+  const results = useMemo(() => searchQuery.data?.items ?? [], [searchQuery.data?.items]);
   const groups = useMemo(() => groupResults(results), [results]);
-
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [debouncedQuery, results.length]);
+  const safeActiveIndex = Math.min(activeIndex, Math.max(results.length - 1, 0));
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
@@ -66,9 +63,9 @@ export function SearchBox({ workspaceSlug, projectSlug, projects }: SearchBoxPro
     if (event.key === 'Escape') {
       setOpen(false);
     }
-    if (event.key === 'Enter' && results[activeIndex]) {
+    if (event.key === 'Enter' && results[safeActiveIndex]) {
       event.preventDefault();
-      openResult(results[activeIndex]);
+      openResult(results[safeActiveIndex]);
     }
   }
 
@@ -120,7 +117,7 @@ export function SearchBox({ workspaceSlug, projectSlug, projects }: SearchBoxPro
                   <button
                     key={`${item.kind}-${item.id}`}
                     type="button"
-                    className={`searchResultItem${flatIndex === activeIndex ? ' isActive' : ''}`}
+                    className={`searchResultItem${flatIndex === safeActiveIndex ? ' isActive' : ''}`}
                     onMouseEnter={() => setActiveIndex(flatIndex)}
                     onClick={() => openResult(item)}
                   >

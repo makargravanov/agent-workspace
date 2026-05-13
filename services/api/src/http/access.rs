@@ -11,7 +11,7 @@ pub enum WorkspaceRole {
 }
 
 impl WorkspaceRole {
-    fn from_db(value: &str) -> Option<Self> {
+    pub fn from_db(value: &str) -> Option<Self> {
         match value {
             "viewer" => Some(Self::Viewer),
             "editor" => Some(Self::Editor),
@@ -146,9 +146,15 @@ pub async fn require_project_access(
     request_id: &str,
 ) -> Result<(), ApiError> {
     match actor.actor_kind {
-        ActorKind::Human => {
-            require_human_workspace_role(pool, actor, workspace_id, human_role, request_id).await
-        }
+        ActorKind::Human => require_human_project_role(
+            pool,
+            actor,
+            workspace_id,
+            project_id,
+            human_role,
+            request_id,
+        )
+        .await,
         ActorKind::Agent => {
             let scope = agent_scope.ok_or_else(|| {
                 ApiError::forbidden(request_id, "agent credentials cannot access this endpoint")
@@ -160,4 +166,83 @@ pub async fn require_project_access(
             "authentication is required",
         )),
     }
+}
+
+async fn require_human_project_role(
+    pool: &sqlx::AnyPool,
+    actor: &ActorContext,
+    workspace_id: &str,
+    project_id: &str,
+    required_role: WorkspaceRole,
+    request_id: &str,
+) -> Result<(), ApiError> {
+    require_authenticated_human(actor, request_id)?;
+
+    let row = sqlx::query_as::<_, MembershipRow>(
+        "SELECT target.role AS role
+         FROM workspace_members current
+         JOIN workspace_members target
+           ON target.external_subject = current.external_subject
+         WHERE CAST(current.id AS TEXT) = $1
+           AND current.status = 'active'
+           AND CAST(target.workspace_id AS TEXT) = $2
+           AND target.status = 'active'
+         LIMIT 1",
+    )
+    .bind(&actor.actor_id)
+    .bind(workspace_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, workspace_id = %workspace_id, "workspace membership lookup failed");
+        ApiError::internal(request_id, "failed to resolve workspace membership")
+    })?;
+
+    let workspace_role = row
+        .as_ref()
+        .and_then(|row| WorkspaceRole::from_db(&row.role))
+        .ok_or_else(|| ApiError::forbidden(request_id, "actor does not have access to this workspace"))?;
+
+    if workspace_role == WorkspaceRole::Owner {
+        return Ok(());
+    }
+
+    let row = sqlx::query_as::<_, MembershipRow>(
+        "SELECT pm.role AS role
+         FROM workspace_members current
+         JOIN workspace_members target
+           ON target.external_subject = current.external_subject
+         JOIN project_members pm
+           ON pm.workspace_member_id = target.id
+         WHERE CAST(current.id AS TEXT) = $1
+           AND current.status = 'active'
+           AND CAST(target.workspace_id AS TEXT) = $2
+           AND target.status = 'active'
+           AND CAST(pm.project_id AS TEXT) = $3
+           AND pm.status = 'active'
+         LIMIT 1",
+    )
+    .bind(&actor.actor_id)
+    .bind(workspace_id)
+    .bind(project_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, workspace_id = %workspace_id, project_id = %project_id, "project membership lookup failed");
+        ApiError::internal(request_id, "failed to resolve project membership")
+    })?;
+
+    let project_role = row
+        .as_ref()
+        .and_then(|row| WorkspaceRole::from_db(&row.role))
+        .ok_or_else(|| ApiError::forbidden(request_id, "actor does not have access to this project"))?;
+
+    if project_role < required_role {
+        return Err(ApiError::forbidden(
+            request_id,
+            "actor does not have enough permissions for this project",
+        ));
+    }
+
+    Ok(())
 }

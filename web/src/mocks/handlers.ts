@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import type { ActivityEvent, AssetDetail, DocumentDetail, NoteDetail, SearchResult } from '../api/types';
+import type { ActivityEvent, AssetDetail, DocumentDetail, NoteDetail, ProjectMember, SearchResult, WorkspaceInvite } from '../api/types';
 import {
   mockActivityEvents,
   mockAssets,
@@ -7,6 +7,9 @@ import {
   mockAgentCredentials,
   mockDocuments,
   mockIntegrationConnections,
+  mockProjectMembers,
+  mockWorkspaceInvites,
+  mockWorkspaceMembers,
   mockNotes,
   mockProjects,
   mockSession,
@@ -18,6 +21,9 @@ const BASE = '/api/v1';
 
 let workspaceStore = [...mockWorkspaces];
 let projectStore = [...mockProjects];
+let workspaceMemberStore = [...mockWorkspaceMembers];
+let workspaceInviteStore = [...mockWorkspaceInvites];
+let projectMemberStore = [...mockProjectMembers];
 let agentStore = [...mockAgents];
 let credentialStore = [...mockAgentCredentials];
 let integrationConnectionStore = [...mockIntegrationConnections];
@@ -228,6 +234,65 @@ export const handlers = [
     return HttpResponse.json(paginate(items, request));
   }),
 
+  http.get(`${BASE}/workspaces/:workspaceSlug/members`, ({ params }) => {
+    const workspace = workspaceStore.find((item) => item.slug === params.workspaceSlug);
+    const items = workspace
+      ? workspaceMemberStore.filter((member) => member.workspace_id === workspace.id)
+      : [];
+    return HttpResponse.json(listEnvelope(items));
+  }),
+
+  http.get(`${BASE}/workspaces/:workspaceSlug/members/invites`, ({ params }) => {
+    const workspace = workspaceStore.find((item) => item.slug === params.workspaceSlug);
+    const items = workspace
+      ? workspaceInviteStore.filter((invite) => invite.workspace_id === workspace.id)
+      : [];
+    return HttpResponse.json(listEnvelope(items));
+  }),
+
+  http.post(`${BASE}/workspaces/:workspaceSlug/members/invites`, async ({ request, params }) => {
+    const workspace = workspaceStore.find((item) => item.slug === params.workspaceSlug);
+    if (!workspace) return notFound('workspace_not_found', 'Workspace not found');
+    const body = (await request.json()) as Partial<{
+      github_login: string;
+      role: 'editor' | 'viewer';
+      project_access: Array<{ project_id: string; role: 'editor' | 'viewer' }>;
+      expires_at: string | null;
+    }>;
+    const now = new Date().toISOString();
+    const invite: WorkspaceInvite = {
+      id: crypto.randomUUID(),
+      workspace_id: workspace.id,
+      github_login: body.github_login || null,
+      role: body.role ?? 'viewer',
+      project_access_json: JSON.stringify(body.project_access ?? []),
+      status: 'pending',
+      expires_at: body.expires_at ?? null,
+      created_by_member_id: mockSession.actor?.actor_id ?? '',
+      accepted_by_member_id: null,
+      accepted_at: null,
+      created_at: now,
+      updated_at: now,
+      invite_url: `/api/v1/auth/github/start?invite=mock-${crypto.randomUUID()}`,
+    };
+    workspaceInviteStore = [invite, ...workspaceInviteStore];
+    return HttpResponse.json(itemEnvelope(invite), { status: 201 });
+  }),
+
+  http.patch(`${BASE}/workspaces/:workspaceSlug/members/:memberId`, async ({ request, params }) => {
+    const index = workspaceMemberStore.findIndex((member) => member.id === params.memberId);
+    if (index === -1) return notFound('member_not_found', 'Member not found');
+    const body = (await request.json()) as Partial<{ role: 'owner' | 'editor' | 'viewer'; status: 'active' | 'disabled' }>;
+    const updated = {
+      ...workspaceMemberStore[index],
+      role: body.role ?? workspaceMemberStore[index].role,
+      status: body.status ?? workspaceMemberStore[index].status,
+      updated_at: new Date().toISOString(),
+    };
+    workspaceMemberStore = workspaceMemberStore.map((member, memberIndex) => memberIndex === index ? updated : member);
+    return HttpResponse.json(itemEnvelope(updated));
+  }),
+
   http.post(`${BASE}/workspaces`, async ({ request }) => {
     const body = (await request.json()) as { slug: string; name: string };
     const now = new Date().toISOString();
@@ -276,6 +341,51 @@ export const handlers = [
           .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
       : [];
     return HttpResponse.json(paginate(items, request));
+  }),
+
+  http.get(`${BASE}/workspaces/:workspaceSlug/projects/:projectSlug/members`, ({ params }) => {
+    const project = projectStore.find((item) => item.slug === params.projectSlug);
+    const items = project
+      ? projectMemberStore.filter((member) => member.project_id === project.id)
+      : [];
+    return HttpResponse.json(listEnvelope(items));
+  }),
+
+  http.put(`${BASE}/workspaces/:workspaceSlug/projects/:projectSlug/members/:memberId`, async ({ request, params }) => {
+    const workspace = workspaceStore.find((item) => item.slug === params.workspaceSlug);
+    const project = projectStore.find((item) => item.slug === params.projectSlug && (!workspace || item.workspace_id === workspace.id));
+    const member = workspaceMemberStore.find((item) => item.id === params.memberId);
+    if (!workspace || !project || !member) return notFound('member_not_found', 'Member not found');
+    const body = (await request.json()) as { role: 'editor' | 'viewer' };
+    const existing = projectMemberStore.findIndex(
+      (item) => item.project_id === project.id && item.workspace_member_id === member.id,
+    );
+    const now = new Date().toISOString();
+    const updated: ProjectMember = {
+      id: existing >= 0 ? projectMemberStore[existing].id : crypto.randomUUID(),
+      workspace_id: workspace.id,
+      project_id: project.id,
+      workspace_member_id: member.id,
+      external_subject: member.external_subject,
+      display_name: member.display_name,
+      github_login: member.github_login,
+      role: body.role,
+      status: 'active',
+      created_at: existing >= 0 ? projectMemberStore[existing].created_at : now,
+      updated_at: now,
+    };
+    projectMemberStore = existing >= 0
+      ? projectMemberStore.map((item, index) => index === existing ? updated : item)
+      : [updated, ...projectMemberStore];
+    return HttpResponse.json(itemEnvelope(updated));
+  }),
+
+  http.delete(`${BASE}/workspaces/:workspaceSlug/projects/:projectSlug/members/:memberId`, ({ params }) => {
+    const project = projectStore.find((item) => item.slug === params.projectSlug);
+    projectMemberStore = projectMemberStore.filter(
+      (member) => !(member.project_id === project?.id && member.workspace_member_id === params.memberId),
+    );
+    return new HttpResponse(null, { status: 204 });
   }),
 
   http.post(`${BASE}/workspaces/:workspaceSlug/projects`, async ({ request, params }) => {

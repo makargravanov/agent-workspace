@@ -33,6 +33,9 @@ export interface PaginationParams {
 
 export type ActorKind = 'human' | 'agent' | 'system';
 export type WorkspaceRole = 'owner' | 'editor' | 'viewer' | 'member';
+export type AccessRole = 'owner' | 'editor' | 'viewer';
+export type MemberStatus = 'active' | 'invited' | 'disabled';
+export type InviteStatus = 'pending' | 'accepted' | 'revoked' | 'expired';
 
 export interface ActorContext {
   actor_kind: ActorKind;
@@ -66,6 +69,69 @@ export interface ProjectSummary {
   status: ProjectStatus;
   created_at: string;
   updated_at: string;
+}
+
+export interface WorkspaceMember {
+  id: string;
+  workspace_id: string;
+  external_subject: string;
+  display_name: string;
+  github_login: string | null;
+  role: AccessRole;
+  status: MemberStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectAccessPayload {
+  project_id: string;
+  role: 'editor' | 'viewer';
+}
+
+export interface WorkspaceInvite {
+  id: string;
+  workspace_id: string;
+  github_login: string | null;
+  role: 'editor' | 'viewer';
+  project_access_json: string;
+  status: InviteStatus;
+  expires_at: string | null;
+  created_by_member_id: string;
+  accepted_by_member_id: string | null;
+  accepted_at: string | null;
+  created_at: string;
+  updated_at: string;
+  invite_url?: string;
+}
+
+export interface ProjectMember {
+  id: string;
+  workspace_id: string;
+  project_id: string;
+  workspace_member_id: string;
+  external_subject: string;
+  display_name: string;
+  github_login: string | null;
+  role: 'editor' | 'viewer';
+  status: 'active' | 'disabled';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateWorkspaceInvitePayload {
+  github_login?: string;
+  role: 'editor' | 'viewer';
+  project_access?: ProjectAccessPayload[];
+  expires_at?: string | null;
+}
+
+export interface UpdateWorkspaceMemberPayload {
+  role?: AccessRole;
+  status?: 'active' | 'disabled';
+}
+
+export interface UpsertProjectMemberPayload {
+  role: 'editor' | 'viewer';
 }
 
 export type TaskGroupKind = 'initiative' | 'milestone' | 'sprint';

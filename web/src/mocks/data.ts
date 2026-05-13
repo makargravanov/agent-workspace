@@ -6,9 +6,12 @@ import type {
   DocumentDetail,
   IntegrationConnectionSummary,
   NoteDetail,
+  ProjectMember,
   ProjectSummary,
   Session,
   TaskDetail,
+  WorkspaceInvite,
+  WorkspaceMember,
   WorkspaceSummary,
 } from '../api/types';
 
@@ -42,6 +45,49 @@ export const mockProjects: ProjectSummary[] = [
     status: 'active',
     created_at: '2026-03-11T10:00:00Z',
     updated_at: '2026-03-11T10:00:00Z',
+  },
+];
+
+export const mockWorkspaceMembers: WorkspaceMember[] = [
+  {
+    id: '00000000-0000-0000-0000-000000000001',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    external_subject: 'github:user:1',
+    display_name: 'Workspace Owner',
+    github_login: 'makargravanov',
+    role: 'owner',
+    status: 'active',
+    created_at: '2026-03-11T10:00:00Z',
+    updated_at: '2026-03-11T10:00:00Z',
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000002',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    external_subject: 'github:user:2',
+    display_name: 'Frontend Dev',
+    github_login: 'frontend-dev',
+    role: 'editor',
+    status: 'active',
+    created_at: '2026-04-01T10:00:00Z',
+    updated_at: '2026-04-01T10:00:00Z',
+  },
+];
+
+export const mockWorkspaceInvites: WorkspaceInvite[] = [];
+
+export const mockProjectMembers: ProjectMember[] = [
+  {
+    id: '00000000-0000-0000-0000-000000000003',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    project_id: '00000000-0000-0000-0000-000000000020',
+    workspace_member_id: '00000000-0000-0000-0000-000000000002',
+    external_subject: 'github:user:2',
+    display_name: 'Frontend Dev',
+    github_login: 'frontend-dev',
+    role: 'editor',
+    status: 'active',
+    created_at: '2026-04-01T10:00:00Z',
+    updated_at: '2026-04-01T10:00:00Z',
   },
 ];
 

@@ -2620,8 +2620,25 @@ textarea:focus {
     justify-content: space-between;
   }
 
-  .viewSwitch button {
+.viewSwitch button {
     flex: 1;
     justify-content: center;
   }
+}
+
+.checkboxStack {
+  display: grid;
+  gap: 8px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.checkboxLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
 }

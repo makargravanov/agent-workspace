@@ -42,6 +42,9 @@ export const queryKeys = {
     ['workspaces', workspaceSlug, 'projects', projectSlug, 'assets', assetId] as const,
 
   members: (workspaceSlug: string) => ['workspaces', workspaceSlug, 'members'] as const,
+  invites: (workspaceSlug: string) => ['workspaces', workspaceSlug, 'members', 'invites'] as const,
+  projectMembers: (workspaceSlug: string, projectSlug: string) =>
+    ['workspaces', workspaceSlug, 'projects', projectSlug, 'members'] as const,
 
   agents: (workspaceSlug: string) => ['workspaces', workspaceSlug, 'agents'] as const,
   agent: (workspaceSlug: string, agentId: string) => ['workspaces', workspaceSlug, 'agents', agentId] as const,

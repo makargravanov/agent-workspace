@@ -164,3 +164,21 @@ export async function apiDelete(path: string, opts?: RequestOptions): Promise<vo
     throw new ApiError(res.status, normalizeErrorBody(json));
   }
 }
+
+/**
+ * Typed PUT. Serializes `body` as JSON.
+ */
+export async function apiPut<TBody, TResponse>(
+  path: string,
+  body: TBody,
+  opts?: RequestOptions,
+): Promise<TResponse> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: opts?.signal,
+  });
+  return parseResponse<TResponse>(res);
+}

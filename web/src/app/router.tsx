@@ -15,6 +15,8 @@ import { ProjectOverviewPage } from '../features/projects/ProjectOverviewPage';
 import { ProjectRouteLayout } from '../features/projects/ProjectRouteLayout';
 import { WorkspacePage } from '../features/projects/WorkspacePage';
 import { IntegrationConnectionsPage } from '../features/integrations/IntegrationConnectionsPage';
+import { ProjectMembersPage } from '../features/members/ProjectMembersPage';
+import { WorkspaceMembersPage } from '../features/members/WorkspaceMembersPage';
 import { NotesPage } from '../features/notes/NotesPage';
 import { TasksPage } from '../features/tasks/TasksPage';
 import { WorkspacesPage } from '../features/workspaces/WorkspacesPage';
@@ -40,6 +42,7 @@ export function AppRouter() {
           <Route path="/workspaces" element={<WorkspacesPage />} />
           <Route path="/workspaces/:workspaceSlug" element={<WorkspacePage />} />
           <Route path="/workspaces/:workspaceSlug/activity" element={<WorkspaceActivityPage />} />
+          <Route path="/workspaces/:workspaceSlug/members" element={<WorkspaceMembersPage />} />
           <Route path="/workspaces/:workspaceSlug/agents" element={<AgentsPage />} />
           <Route path="/workspaces/:workspaceSlug/agents/:agentId" element={<AgentDetailsPage />} />
           <Route path="/workspaces/:workspaceSlug/integrations" element={<IntegrationConnectionsPage />} />
@@ -53,6 +56,7 @@ export function AppRouter() {
             <Route path="notes" element={<NotesPage />} />
             <Route path="assets" element={<AssetsPage />} />
             <Route path="activity" element={<ProjectActivityPage />} />
+            <Route path="members" element={<ProjectMembersPage />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -307,6 +307,8 @@ mod smoke {
         let tables = [
             "workspaces",
             "workspace_members",
+            "workspace_invites",
+            "project_members",
             "human_identities",
             "human_sessions",
             "projects",
