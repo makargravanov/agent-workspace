@@ -1,8 +1,8 @@
-import { Download, File, FileImage, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
+import { Download, ExternalLink, Eye, File, FileImage, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
 import type { ChangeEvent, FormEvent } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { assetDownloadUrl } from '../../api/assets';
+import { assetDownloadUrl, assetPreviewUrl } from '../../api/assets';
 import type { AssetDetail } from '../../api/types';
 import {
   useAssets,
@@ -34,10 +34,35 @@ export function AssetsPage() {
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [editFileName, setEditFileName] = useState('');
   const [editMediaType, setEditMediaType] = useState('');
+  const [previewAsset, setPreviewAsset] = useState<AssetDetail | null>(null);
   const canEdit = canEditAssets(sessionQuery.data?.actor?.role);
   const assets = useMemo(() => assetsQuery.data?.items ?? [], [assetsQuery.data?.items]);
   const totalSize = assets.reduce((sum, asset) => sum + asset.size_bytes, 0);
   const imageCount = assets.filter((asset) => asset.media_type.startsWith('image/')).length;
+  const previewUrl = previewAsset
+    ? assetPreviewUrl(workspaceSlug, projectSlug, previewAsset.id)
+    : '';
+
+  useEffect(() => {
+    if (!previewAsset) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setPreviewAsset(null);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [previewAsset]);
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     setUploadError(null);
@@ -228,11 +253,12 @@ export function AssetsPage() {
           <tbody>
             {assets.map((asset) => {
               const isEditing = editingAssetId === asset.id;
+              const isImage = isImageAsset(asset);
               return (
                 <tr key={asset.id}>
                   <td>
                     <div className="assetNameCell">
-                      {asset.media_type.startsWith('image/') ? (
+                      {isImage ? (
                         <FileImage size={17} />
                       ) : (
                         <File size={17} />
@@ -263,10 +289,21 @@ export function AssetsPage() {
                     )}
                   </td>
                   <td>{formatBytes(asset.size_bytes)}</td>
-                  <td>{asset.uploaded_by_member_id ?? 'system'}</td>
+                  <td>{renderUploader(asset)}</td>
                   <td>{formatDateTime(asset.created_at)}</td>
                   <td>
                     <div className="tableActionsCell">
+                      {isImage ? (
+                        <button
+                          type="button"
+                          className="iconButton compactIconButton"
+                          onClick={() => setPreviewAsset(asset)}
+                          title="Preview"
+                          aria-label={`Preview ${asset.file_name}`}
+                        >
+                          <Eye size={14} />
+                        </button>
+                      ) : null}
                       <a
                         className="iconButton compactIconButton"
                         href={assetDownloadUrl(workspaceSlug, projectSlug, asset.id)}
@@ -338,6 +375,60 @@ export function AssetsPage() {
       {deleteAssetMutation.error ? (
         <p className="errorText">{getErrorMessage(deleteAssetMutation.error)}</p>
       ) : null}
+
+      {previewAsset ? (
+        <div
+          className="assetPreviewOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Preview ${previewAsset.file_name}`}
+          onMouseDown={() => setPreviewAsset(null)}
+        >
+          <div className="assetPreviewDialog" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="assetPreviewHeader">
+              <div>
+                <strong>{previewAsset.file_name}</strong>
+                <span>
+                  {previewAsset.media_type} / {formatBytes(previewAsset.size_bytes)}
+                </span>
+              </div>
+              <div className="assetPreviewActions">
+                <a
+                  className="iconButton compactIconButton"
+                  href={previewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open image"
+                  aria-label={`Open ${previewAsset.file_name}`}
+                >
+                  <ExternalLink size={14} />
+                </a>
+                <a
+                  className="iconButton compactIconButton"
+                  href={previewUrl}
+                  download={previewAsset.file_name}
+                  title="Download"
+                  aria-label={`Download ${previewAsset.file_name}`}
+                >
+                  <Download size={14} />
+                </a>
+                <button
+                  type="button"
+                  className="iconButton compactIconButton"
+                  onClick={() => setPreviewAsset(null)}
+                  title="Close"
+                  aria-label="Close preview"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </header>
+            <div className="assetPreviewCanvas">
+              <img src={previewUrl} alt={previewAsset.file_name} />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -363,6 +454,36 @@ function formatBytes(size: number): string {
   const index = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length - 1);
   const value = size / 1024 ** index;
   return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
+}
+
+function isImageAsset(asset: AssetDetail): boolean {
+  return asset.media_type.toLowerCase().startsWith('image/');
+}
+
+function renderUploader(asset: AssetDetail) {
+  const githubLogin = normalizeGithubLogin(asset.uploaded_by_github_login);
+  if (!githubLogin) {
+    return 'dev';
+  }
+
+  return (
+    <a
+      className="assetUploaderLink"
+      href={`https://github.com/${githubLogin}`}
+      target="_blank"
+      rel="noreferrer"
+    >
+      @{githubLogin}
+    </a>
+  );
+}
+
+function normalizeGithubLogin(value: string | null): string | null {
+  const login = value?.trim() ?? '';
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(login)) {
+    return null;
+  }
+  return login;
 }
 
 function canEditAssets(role: string | undefined): boolean {

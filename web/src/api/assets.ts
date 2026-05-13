@@ -84,3 +84,11 @@ export function assetDownloadUrl(
 ): string {
   return apiUrl(`${assetsBase(workspaceSlug, projectSlug)}/${assetId}/download`);
 }
+
+export function assetPreviewUrl(
+  workspaceSlug: string,
+  projectSlug: string,
+  assetId: string,
+): string {
+  return `${assetDownloadUrl(workspaceSlug, projectSlug, assetId)}?disposition=inline`;
+}

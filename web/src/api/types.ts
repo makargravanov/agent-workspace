@@ -147,6 +147,7 @@ export interface AssetDetail {
   workspace_id: string;
   project_id: string;
   uploaded_by_member_id: string | null;
+  uploaded_by_github_login: string | null;
   file_name: string;
   media_type: string;
   size_bytes: number;

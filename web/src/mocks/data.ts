@@ -192,6 +192,7 @@ export const mockAssets: AssetDetail[] = [
     workspace_id: '00000000-0000-0000-0000-000000000010',
     project_id: '00000000-0000-0000-0000-000000000020',
     uploaded_by_member_id: '00000000-0000-0000-0000-000000000001',
+    uploaded_by_github_login: 'makargravanov',
     file_name: 'architecture-note.txt',
     media_type: 'text/plain',
     size_bytes: 42,

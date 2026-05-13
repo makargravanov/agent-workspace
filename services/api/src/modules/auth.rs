@@ -448,7 +448,7 @@ async fn resolve_or_create_github_member(
             &member_id,
             "github",
             &profile.provider_subject,
-            &profile.display_name,
+            &profile.login,
             request_id,
         )
         .await?;
@@ -473,7 +473,7 @@ async fn resolve_or_create_github_member(
             &member_id,
             "github",
             &profile.provider_subject,
-            &profile.display_name,
+            &profile.login,
             request_id,
         )
         .await?;
@@ -505,7 +505,7 @@ async fn resolve_or_create_github_member(
         &member_id,
         "github",
         &profile.provider_subject,
-        &profile.display_name,
+        &profile.login,
         request_id,
     )
     .await?;

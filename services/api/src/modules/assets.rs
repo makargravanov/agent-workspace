@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header, StatusCode},
     response::Response,
     routing::get,
@@ -31,6 +31,7 @@ pub struct AssetResponse {
     pub workspace_id: String,
     pub project_id: String,
     pub uploaded_by_member_id: Option<String>,
+    pub uploaded_by_github_login: Option<String>,
     pub file_name: String,
     pub media_type: String,
     pub size_bytes: i64,
@@ -54,6 +55,11 @@ pub struct UpdateAssetRequest {
     pub media_type: Option<String>,
     pub content_base64: Option<String>,
     pub sha256: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DownloadAssetQuery {
+    pub disposition: Option<String>,
 }
 
 pub fn routes() -> Router<AppState> {
@@ -114,19 +120,27 @@ async fn fetch_asset(
     asset_id: &str,
 ) -> Result<Option<AssetResponse>, sqlx::Error> {
     sqlx::query_as::<_, AssetResponse>(
-        "SELECT CAST(id AS TEXT) AS id,
-                CAST(workspace_id AS TEXT) AS workspace_id,
-                CAST(project_id AS TEXT) AS project_id,
-                CAST(uploaded_by_member_id AS TEXT) AS uploaded_by_member_id,
-                file_name,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_backend,
-                storage_key,
-                CAST(created_at AS TEXT) AS created_at
-         FROM assets
-         WHERE CAST(project_id AS TEXT) = $1 AND CAST(id AS TEXT) = $2",
+        "SELECT CAST(a.id AS TEXT) AS id,
+                CAST(a.workspace_id AS TEXT) AS workspace_id,
+                CAST(a.project_id AS TEXT) AS project_id,
+                CAST(a.uploaded_by_member_id AS TEXT) AS uploaded_by_member_id,
+                (
+                    SELECT hi.display_name
+                    FROM human_identities hi
+                    WHERE hi.workspace_member_id = a.uploaded_by_member_id
+                      AND hi.provider = 'github'
+                    ORDER BY hi.updated_at DESC
+                    LIMIT 1
+                ) AS uploaded_by_github_login,
+                a.file_name,
+                a.media_type,
+                a.size_bytes,
+                a.sha256,
+                a.storage_backend,
+                a.storage_key,
+                CAST(a.created_at AS TEXT) AS created_at
+         FROM assets a
+         WHERE CAST(a.project_id AS TEXT) = $1 AND CAST(a.id AS TEXT) = $2",
     )
     .bind(project_id)
     .bind(asset_id)
@@ -158,20 +172,28 @@ async fn list_assets(
     .await?;
 
     let items = sqlx::query_as::<_, AssetResponse>(
-        "SELECT CAST(id AS TEXT) AS id,
-                CAST(workspace_id AS TEXT) AS workspace_id,
-                CAST(project_id AS TEXT) AS project_id,
-                CAST(uploaded_by_member_id AS TEXT) AS uploaded_by_member_id,
-                file_name,
-                media_type,
-                size_bytes,
-                sha256,
-                storage_backend,
-                storage_key,
-                CAST(created_at AS TEXT) AS created_at
-         FROM assets
-         WHERE CAST(project_id AS TEXT) = $1
-         ORDER BY created_at DESC",
+        "SELECT CAST(a.id AS TEXT) AS id,
+                CAST(a.workspace_id AS TEXT) AS workspace_id,
+                CAST(a.project_id AS TEXT) AS project_id,
+                CAST(a.uploaded_by_member_id AS TEXT) AS uploaded_by_member_id,
+                (
+                    SELECT hi.display_name
+                    FROM human_identities hi
+                    WHERE hi.workspace_member_id = a.uploaded_by_member_id
+                      AND hi.provider = 'github'
+                    ORDER BY hi.updated_at DESC
+                    LIMIT 1
+                ) AS uploaded_by_github_login,
+                a.file_name,
+                a.media_type,
+                a.size_bytes,
+                a.sha256,
+                a.storage_backend,
+                a.storage_key,
+                CAST(a.created_at AS TEXT) AS created_at
+         FROM assets a
+         WHERE CAST(a.project_id AS TEXT) = $1
+         ORDER BY a.created_at DESC",
     )
     .bind(&project_id)
     .fetch_all(&state.pool)
@@ -523,6 +545,7 @@ async fn download_asset(
     RequestId(request_id): RequestId,
     actor: ActorContext,
     Path((workspace_slug, project_slug, asset_id)): Path<(String, String, String)>,
+    Query(query): Query<DownloadAssetQuery>,
 ) -> Result<Response, ApiError> {
     let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
         .await
@@ -548,12 +571,17 @@ async fn download_asset(
 
     let bytes = fs::read(asset_path(&state, &asset.storage_key))
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    let disposition = if query.disposition.as_deref() == Some("inline") {
+        "inline"
+    } else {
+        "attachment"
+    };
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, asset.media_type)
         .header(
             header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{}\"", asset.file_name),
+            format!("{disposition}; filename=\"{}\"", asset.file_name),
         )
         .body(axum::body::Body::from(bytes))
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))

@@ -24,7 +24,7 @@ let taskStore = [...mockTasks];
 let noteStore = [...mockNotes];
 let documentStore = [...mockDocuments];
 let assetStore = [...mockAssets];
-let assetContentStore = new Map<string, string>(
+const assetContentStore = new Map<string, string>(
   mockAssets.map((asset) => [asset.id, btoa(`Mock content for ${asset.file_name}`)]),
 );
 
@@ -555,6 +555,7 @@ export const handlers = [
       workspace_id: project.workspace_id,
       project_id: project.id,
       uploaded_by_member_id: mockSession.actor?.actor_id ?? null,
+      uploaded_by_github_login: null,
       file_name: body.file_name,
       media_type: body.media_type,
       size_bytes: size,
@@ -600,18 +601,21 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
-  http.get(`${BASE}/workspaces/:ws/projects/:proj/assets/:assetId/download`, ({ params }) => {
+  http.get(`${BASE}/workspaces/:ws/projects/:proj/assets/:assetId/download`, ({ params, request }) => {
     const asset = assetStore.find((item) => item.id === params.assetId);
     if (!asset) {
       return notFound('asset_not_found', 'Asset not found');
     }
     const contentBase64 = assetContentStore.get(asset.id) ?? '';
     const bytes = Uint8Array.from(atob(contentBase64), (char) => char.charCodeAt(0));
+    const disposition = new URL(request.url).searchParams.get('disposition') === 'inline'
+      ? 'inline'
+      : 'attachment';
     return new HttpResponse(bytes, {
       status: 200,
       headers: {
         'Content-Type': asset.media_type,
-        'Content-Disposition': `attachment; filename="${asset.file_name}"`,
+        'Content-Disposition': `${disposition}; filename="${asset.file_name}"`,
       },
     });
   }),

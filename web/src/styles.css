@@ -915,6 +915,16 @@ textarea:focus {
   font-size: 0.88rem;
 }
 
+.assetUploaderLink {
+  color: #0c66e4;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.assetUploaderLink:hover {
+  text-decoration: underline;
+}
+
 .assetNameCell {
   display: flex;
   align-items: center;
@@ -963,6 +973,101 @@ textarea:focus {
 
 .assetsEmpty {
   margin: 14px;
+}
+
+.assetPreviewOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  padding: 24px;
+  background: rgba(9, 30, 66, 0.78);
+}
+
+.assetPreviewDialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1180px, 100%);
+  min-height: 0;
+  max-height: calc(100vh - 48px);
+  margin: auto;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: #111827;
+  box-shadow: 0 20px 60px rgba(9, 30, 66, 0.34);
+}
+
+.assetPreviewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.assetPreviewHeader > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.assetPreviewHeader strong,
+.assetPreviewHeader span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assetPreviewHeader span {
+  color: #cbd5e1;
+  font-size: 0.82rem;
+}
+
+.assetPreviewActions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.assetPreviewActions .iconButton {
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.assetPreviewActions .iconButton:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.assetPreviewCanvas {
+  display: grid;
+  min-height: 0;
+  padding: 16px;
+  place-items: center;
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%),
+    #0f172a;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0;
+  background-size: 20px 20px;
+}
+
+.assetPreviewCanvas img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 150px);
+  object-fit: contain;
 }
 
 .statCard {
