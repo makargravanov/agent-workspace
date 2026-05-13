@@ -24,6 +24,7 @@ pub struct ActivityEventResponse {
     pub project_id: Option<String>,
     pub actor_type: String,
     pub actor_id: Option<String>,
+    pub actor_github_login: Option<String>,
     pub entity_type: String,
     pub entity_id: Option<String>,
     pub event_type: String,
@@ -103,19 +104,22 @@ async fn list_workspace_activity(
     let limit = pagination.per_page as i64;
 
     let rows: Vec<ActivityEventResponse> = sqlx::query_as(
-        "SELECT CAST(id AS TEXT) AS id,
-                CAST(workspace_id AS TEXT) AS workspace_id,
-                CAST(project_id AS TEXT) AS project_id,
-                actor_type,
-                CAST(actor_id AS TEXT) AS actor_id,
-                entity_type,
-                CAST(entity_id AS TEXT) AS entity_id,
-                event_type,
-                CAST(payload_json AS TEXT) AS payload_json,
-                CAST(occurred_at AS TEXT) AS occurred_at
-         FROM audit_events
-         WHERE CAST(workspace_id AS TEXT) = $1
-         ORDER BY occurred_at DESC
+        "SELECT CAST(ae.id AS TEXT) AS id,
+                CAST(ae.workspace_id AS TEXT) AS workspace_id,
+                CAST(ae.project_id AS TEXT) AS project_id,
+                ae.actor_type,
+                CAST(ae.actor_id AS TEXT) AS actor_id,
+                hi.display_name AS actor_github_login,
+                ae.entity_type,
+                CAST(ae.entity_id AS TEXT) AS entity_id,
+                ae.event_type,
+                CAST(ae.payload_json AS TEXT) AS payload_json,
+                CAST(ae.occurred_at AS TEXT) AS occurred_at
+         FROM audit_events ae
+         LEFT JOIN human_identities hi
+           ON hi.provider = 'github' AND CAST(hi.workspace_member_id AS TEXT) = CAST(ae.actor_id AS TEXT)
+         WHERE CAST(ae.workspace_id AS TEXT) = $1
+         ORDER BY ae.occurred_at DESC
          LIMIT $2 OFFSET $3",
     )
     .bind(&workspace_id)
@@ -186,19 +190,22 @@ async fn list_project_activity(
     let limit = pagination.per_page as i64;
 
     let rows: Vec<ActivityEventResponse> = sqlx::query_as(
-        "SELECT CAST(id AS TEXT) AS id,
-                CAST(workspace_id AS TEXT) AS workspace_id,
-                CAST(project_id AS TEXT) AS project_id,
-                actor_type,
-                CAST(actor_id AS TEXT) AS actor_id,
-                entity_type,
-                CAST(entity_id AS TEXT) AS entity_id,
-                event_type,
-                CAST(payload_json AS TEXT) AS payload_json,
-                CAST(occurred_at AS TEXT) AS occurred_at
-         FROM audit_events
-         WHERE CAST(workspace_id AS TEXT) = $1 AND CAST(project_id AS TEXT) = $2
-         ORDER BY occurred_at DESC
+        "SELECT CAST(ae.id AS TEXT) AS id,
+                CAST(ae.workspace_id AS TEXT) AS workspace_id,
+                CAST(ae.project_id AS TEXT) AS project_id,
+                ae.actor_type,
+                CAST(ae.actor_id AS TEXT) AS actor_id,
+                hi.display_name AS actor_github_login,
+                ae.entity_type,
+                CAST(ae.entity_id AS TEXT) AS entity_id,
+                ae.event_type,
+                CAST(ae.payload_json AS TEXT) AS payload_json,
+                CAST(ae.occurred_at AS TEXT) AS occurred_at
+         FROM audit_events ae
+         LEFT JOIN human_identities hi
+           ON hi.provider = 'github' AND CAST(hi.workspace_member_id AS TEXT) = CAST(ae.actor_id AS TEXT)
+         WHERE CAST(ae.workspace_id AS TEXT) = $1 AND CAST(ae.project_id AS TEXT) = $2
+         ORDER BY ae.occurred_at DESC
          LIMIT $3 OFFSET $4",
     )
     .bind(&workspace_id)
@@ -254,7 +261,7 @@ mod tests {
     const WS_SLUG: &str = "ops-workspace";
     const PROJECT_SLUG: &str = "ops-project";
 
-    async fn setup(role: &str) -> (axum::Router, String) {
+    async fn setup(role: &str) -> (axum::Router, String, String) {
         let pool = any_test_pool().await;
         let scope = seed_workspace_member_project(
             &pool,
@@ -268,12 +275,12 @@ mod tests {
         )
         .await;
         let router = build_router(AppState::new(pool, DatabaseBackend::Sqlite));
-        (router, scope.member_id)
+        (router, scope.member_id, scope.workspace_id)
     }
 
     #[tokio::test]
     async fn workspace_activity_contains_agent_event() {
-        let (app, member_id) = setup("owner").await;
+        let (app, member_id, _) = setup("owner").await;
         let create = app
             .clone()
             .oneshot(json_request(
@@ -309,7 +316,7 @@ mod tests {
 
     #[tokio::test]
     async fn project_activity_is_scoped_to_project() {
-        let (app, member_id) = setup("owner").await;
+        let (app, member_id, workspace_id) = setup("owner").await;
         let create = app
             .clone()
             .oneshot(json_request(
@@ -319,7 +326,8 @@ mod tests {
                         "/api/v1/workspaces/{WS_SLUG}/projects/{PROJECT_SLUG}/documents"
                     ))
                     .header("x-actor-kind", "human")
-                    .header("x-actor-id", &member_id),
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id),
                 &json!({
                     "slug": "runbook",
                     "title": "Runbook",
@@ -353,7 +361,7 @@ mod tests {
 
     #[tokio::test]
     async fn workspace_activity_paginates() {
-        let (app, member_id) = setup("owner").await;
+        let (app, member_id, _) = setup("owner").await;
         for key in ["ops-bot-a", "ops-bot-b"] {
             let create = app
                 .clone()
@@ -390,7 +398,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_member_cannot_read_activity() {
-        let (app, _) = setup("owner").await;
+        let (app, _, _) = setup("owner").await;
         let response = app
             .oneshot(
                 Request::builder()

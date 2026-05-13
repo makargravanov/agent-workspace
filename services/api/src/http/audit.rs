@@ -123,15 +123,14 @@ pub async fn record_audit(
 ) -> Result<(), sqlx::Error> {
     emit_audit(event.clone());
 
-    let (workspace_id, project_id) = match event.actor.workspace_id.clone() {
-        Some(workspace_id) => (workspace_id, event.actor.project_id.clone()),
-        None => {
-            let Some((workspace_id, project_id)) = resolve_resource_scope(pool, &event).await?
-            else {
-                return Ok(());
-            };
-            (workspace_id, project_id)
+    let resolved_scope = resolve_resource_scope(pool, &event).await?;
+    let (workspace_id, project_id) = match (event.actor.workspace_id.clone(), resolved_scope) {
+        (Some(workspace_id), Some((_, resource_project_id))) => {
+            (workspace_id, event.actor.project_id.clone().or(resource_project_id))
         }
+        (Some(workspace_id), None) => (workspace_id, event.actor.project_id.clone()),
+        (None, Some((workspace_id, project_id))) => (workspace_id, project_id),
+        (None, None) => return Ok(()),
     };
 
     let actor_id = if event.actor.actor_id == "anonymous" {

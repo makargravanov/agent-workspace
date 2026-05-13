@@ -248,11 +248,11 @@ function renderActor(item: ActivityEvent) {
     );
   }
 
-  return <span>{actorLabel(item)}</span>;
-}
+  if (item.actor_id) {
+    return <span className="assetUploaderLink">@{item.actor_id}</span>;
+  }
 
-function actorLabel(item: ActivityEvent) {
-  return `${item.actor_type}${item.actor_id ? ` ${item.actor_id.slice(0, 8)}` : ''}`;
+  return <span>{item.actor_type}</span>;
 }
 
 function activityTitle(item: ActivityEvent) {
@@ -278,6 +278,9 @@ function parsePayload(payloadJson: string | null): Record<string, unknown> {
 }
 
 function githubLoginFromActivity(item: ActivityEvent) {
+  const directLogin = normalizeGithubLogin(item.actor_github_login);
+  if (directLogin) return directLogin;
+
   const payload = parsePayload(item.payload_json);
   for (const key of ['github_login', 'uploaded_by_github_login', 'actor_login', 'login']) {
     const value = payload[key];
@@ -287,7 +290,7 @@ function githubLoginFromActivity(item: ActivityEvent) {
     }
   }
 
-  return normalizeGithubLogin(item.actor_id);
+  return null;
 }
 
 function normalizeGithubLogin(value: string | null | undefined): string | null {

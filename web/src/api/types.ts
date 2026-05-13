@@ -335,6 +335,7 @@ export interface ActivityEvent {
   project_id: string | null;
   actor_type: string;
   actor_id: string | null;
+  actor_github_login?: string | null;
   entity_type: string;
   entity_id: string | null;
   event_type: string;
