@@ -214,7 +214,7 @@ export const mockActivityEvents: ActivityEvent[] = [
     entity_type: 'document',
     entity_id: '00000000-0000-0000-0000-000000000060',
     event_type: 'document.create',
-    payload_json: '{"title":"Project Guide"}',
+    payload_json: '{"title":"Project Guide","github_login":"makargravanov"}',
     occurred_at: '2026-05-01T10:00:00Z',
   },
   {
@@ -226,7 +226,7 @@ export const mockActivityEvents: ActivityEvent[] = [
     entity_type: 'agent',
     entity_id: '00000000-0000-0000-0000-000000000030',
     event_type: 'agent.create',
-    payload_json: '{"display_name":"Automation Bot"}',
+    payload_json: '{"display_name":"Automation Bot","github_login":"makargravanov"}',
     occurred_at: '2026-05-02T10:00:00Z',
   },
   {
@@ -238,7 +238,7 @@ export const mockActivityEvents: ActivityEvent[] = [
     entity_type: 'asset',
     entity_id: '00000000-0000-0000-0000-000000000080',
     event_type: 'asset.create',
-    payload_json: '{"file_name":"architecture-note.txt"}',
+    payload_json: '{"file_name":"architecture-note.txt","uploaded_by_github_login":"makargravanov"}',
     occurred_at: '2026-05-03T10:00:00Z',
   },
 ];

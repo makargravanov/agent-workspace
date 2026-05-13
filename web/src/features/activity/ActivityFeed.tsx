@@ -72,7 +72,7 @@ export function ActivityFeed({
                 <span>{activityTitle(item)}</span>
               </div>
               <div className="activityItemMeta">
-                <span>{actorLabel(item)}</span>
+                {renderActor(item)}
                 <span>{formatDateTime(item.occurred_at)}</span>
               </div>
             </div>
@@ -233,6 +233,24 @@ function entityTypeLabel(entityType: string) {
   }
 }
 
+function renderActor(item: ActivityEvent) {
+  const githubLogin = githubLoginFromActivity(item);
+  if (githubLogin) {
+    return (
+      <a
+        className="assetUploaderLink"
+        href={`https://github.com/${githubLogin}`}
+        target="_blank"
+        rel="noreferrer"
+      >
+        @{githubLogin}
+      </a>
+    );
+  }
+
+  return <span>{actorLabel(item)}</span>;
+}
+
 function actorLabel(item: ActivityEvent) {
   return `${item.actor_type}${item.actor_id ? ` ${item.actor_id.slice(0, 8)}` : ''}`;
 }
@@ -257,4 +275,25 @@ function parsePayload(payloadJson: string | null): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function githubLoginFromActivity(item: ActivityEvent) {
+  const payload = parsePayload(item.payload_json);
+  for (const key of ['github_login', 'uploaded_by_github_login', 'actor_login', 'login']) {
+    const value = payload[key];
+    if (typeof value === 'string') {
+      const login = normalizeGithubLogin(value);
+      if (login) return login;
+    }
+  }
+
+  return normalizeGithubLogin(item.actor_id);
+}
+
+function normalizeGithubLogin(value: string | null | undefined): string | null {
+  const login = value?.trim() ?? '';
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(login)) {
+    return null;
+  }
+  return login;
 }

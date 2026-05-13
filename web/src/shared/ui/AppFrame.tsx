@@ -307,7 +307,7 @@ function getContextLinks(workspaceSlug: string, projectSlug: string): ContextLin
       },
       {
         icon: History,
-        label: 'Activity',
+        label: 'Активность',
         to: `/workspaces/${workspaceSlug}/projects/${projectSlug}/activity`,
       },
     ];
@@ -333,7 +333,7 @@ function getContextLinks(workspaceSlug: string, projectSlug: string): ContextLin
       },
       {
         icon: History,
-        label: 'Activity',
+        label: 'Активность',
         to: `/workspaces/${workspaceSlug}/activity`,
       },
     ];
