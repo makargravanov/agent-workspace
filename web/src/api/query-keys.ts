@@ -45,6 +45,11 @@ export const queryKeys = {
   agentCredential: (workspaceSlug: string, credentialId: string) =>
     ['workspaces', workspaceSlug, 'agent-credentials', credentialId] as const,
 
+  integrationConnections: (workspaceSlug: string) =>
+    ['workspaces', workspaceSlug, 'integration-connections'] as const,
+  integrationConnection: (workspaceSlug: string, connectionId: string) =>
+    ['workspaces', workspaceSlug, 'integration-connections', connectionId] as const,
+
   activity: (workspaceSlug: string, projectSlug: string) =>
     ['workspaces', workspaceSlug, 'projects', projectSlug, 'activity'] as const,
 } as const;

@@ -952,6 +952,36 @@ textarea:focus {
   min-width: 160px;
 }
 
+.integrationsToolbar select {
+  width: auto;
+  min-width: 180px;
+}
+
+.integrationsTable td:first-child {
+  min-width: 190px;
+}
+
+.integrationsConfigCell {
+  max-width: 260px;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.integrationsForm {
+  margin-top: 12px;
+}
+
+.integrationsFormActions {
+  align-items: center;
+  gap: 8px;
+}
+
+.integrationsEmpty {
+  margin: 14px;
+}
+
 .viewSwitch {
   display: inline-flex;
   gap: 3px;
@@ -2184,6 +2214,7 @@ textarea:focus {
   }
 
   .trackerToolbar select,
+  .integrationsToolbar select,
   .searchField,
   .viewSwitch {
     width: 100%;

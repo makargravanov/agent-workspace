@@ -4,6 +4,7 @@ import {
   mockAgents,
   mockAgentCredentials,
   mockDocuments,
+  mockIntegrationConnections,
   mockNotes,
   mockProjects,
   mockSession,
@@ -17,6 +18,7 @@ let workspaceStore = [...mockWorkspaces];
 let projectStore = [...mockProjects];
 let agentStore = [...mockAgents];
 let credentialStore = [...mockAgentCredentials];
+let integrationConnectionStore = [...mockIntegrationConnections];
 let taskStore = [...mockTasks];
 let noteStore = [...mockNotes];
 let documentStore = [...mockDocuments];
@@ -214,6 +216,98 @@ export const handlers = [
 
   http.delete(`${BASE}/workspaces/:workspaceSlug/agent-credentials/:credentialId`, ({ params }) => {
     credentialStore = credentialStore.filter((credential) => credential.id !== params.credentialId);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get(`${BASE}/workspaces/:workspaceSlug/integration-connections`, ({ params }) => {
+    const workspace = workspaceStore.find((item) => item.slug === params.workspaceSlug);
+    const items = workspace
+      ? integrationConnectionStore.filter((connection) => connection.workspace_id === workspace.id)
+      : [];
+    return HttpResponse.json(listEnvelope(items));
+  }),
+
+  http.post(`${BASE}/workspaces/:workspaceSlug/integration-connections`, async ({ request, params }) => {
+    const workspace = workspaceStore.find((item) => item.slug === params.workspaceSlug);
+    if (!workspace) return notFound('workspace_not_found', 'Workspace not found');
+    const body = (await request.json()) as {
+      provider?: string;
+      scope_kind: 'workspace' | 'project';
+      project_id?: string | null;
+      status?: 'active' | 'disabled' | 'error';
+      config_json?: unknown;
+    };
+    if (body.scope_kind === 'project' && !body.project_id) {
+      return HttpResponse.json(
+        {
+          error: {
+            code: 'validation_error',
+            message: 'project_id is required when scope_kind = project',
+            details: null,
+            request_id: 'mock-req',
+          },
+        },
+        { status: 422 },
+      );
+    }
+    const now = new Date().toISOString();
+    const created = {
+      id: crypto.randomUUID(),
+      workspace_id: workspace.id,
+      project_id: body.scope_kind === 'project' ? body.project_id ?? null : null,
+      provider: body.provider ?? 'github',
+      scope_kind: body.scope_kind,
+      status: body.status ?? 'active',
+      config_json:
+        body.config_json === null || body.config_json === undefined
+          ? null
+          : JSON.stringify(body.config_json),
+      secret_ciphertext: null,
+      last_synced_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+    integrationConnectionStore = [created, ...integrationConnectionStore];
+    return HttpResponse.json(itemEnvelope(created), { status: 201 });
+  }),
+
+  http.get(`${BASE}/workspaces/:workspaceSlug/integration-connections/:connectionId`, ({ params }) => {
+    const connection = integrationConnectionStore.find((item) => item.id === params.connectionId);
+    return connection
+      ? HttpResponse.json(itemEnvelope(connection))
+      : notFound('integration_connection_not_found', 'Connection not found');
+  }),
+
+  http.patch(`${BASE}/workspaces/:workspaceSlug/integration-connections/:connectionId`, async ({ request, params }) => {
+    const index = integrationConnectionStore.findIndex((item) => item.id === params.connectionId);
+    if (index === -1) {
+      return notFound('integration_connection_not_found', 'Connection not found');
+    }
+    const body = (await request.json()) as Partial<{
+      status: 'active' | 'disabled' | 'error';
+      config_json: unknown;
+    }>;
+    const updated = {
+      ...integrationConnectionStore[index],
+      status: body.status ?? integrationConnectionStore[index].status,
+      config_json:
+        body.config_json === undefined
+          ? integrationConnectionStore[index].config_json
+          : body.config_json === null
+            ? null
+            : JSON.stringify(body.config_json),
+      updated_at: new Date().toISOString(),
+    };
+    integrationConnectionStore = integrationConnectionStore.map((item, itemIndex) =>
+      itemIndex === index ? updated : item,
+    );
+    return HttpResponse.json(itemEnvelope(updated));
+  }),
+
+  http.delete(`${BASE}/workspaces/:workspaceSlug/integration-connections/:connectionId`, ({ params }) => {
+    integrationConnectionStore = integrationConnectionStore.filter(
+      (connection) => connection.id !== params.connectionId,
+    );
     return new HttpResponse(null, { status: 204 });
   }),
 

@@ -3,6 +3,7 @@ export * from './client';
 export * from './query-keys';
 export * from './auth';
 export * from './agents';
+export * from './integration-connections';
 export * from './workspaces';
 export * from './tasks';
 export * from './notes';

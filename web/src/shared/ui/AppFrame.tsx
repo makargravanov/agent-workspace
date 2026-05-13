@@ -9,6 +9,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Plug,
   StickyNote,
   Trash2,
 } from 'lucide-react';
@@ -140,6 +141,14 @@ export function AppFrame({ children }: { children: ReactNode }) {
                 to={`/workspaces/${workspaceSlug}/agents`}
                 icon={KeyRound}
                 label="Agents"
+                expanded={railExpanded}
+              />
+            ) : null}
+            {workspaceSlug ? (
+              <RailLink
+                to={`/workspaces/${workspaceSlug}/integrations`}
+                icon={Plug}
+                label="Integrations"
                 expanded={railExpanded}
               />
             ) : null}
@@ -296,6 +305,11 @@ function getContextLinks(workspaceSlug: string, projectSlug: string): ContextLin
         icon: KeyRound,
         label: 'Agents',
         to: `/workspaces/${workspaceSlug}/agents`,
+      },
+      {
+        icon: Plug,
+        label: 'Integrations',
+        to: `/workspaces/${workspaceSlug}/integrations`,
       },
     ];
   }

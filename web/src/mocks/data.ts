@@ -2,6 +2,7 @@ import type {
   AgentCredentialSummary,
   AgentSummary,
   DocumentDetail,
+  IntegrationConnectionSummary,
   NoteDetail,
   ProjectSummary,
   Session,
@@ -67,6 +68,35 @@ export const mockAgentCredentials: AgentCredentialSummary[] = [
     expires_at: null,
     created_at: '2026-03-11T10:00:00Z',
     updated_at: '2026-03-11T10:00:00Z',
+  },
+];
+
+export const mockIntegrationConnections: IntegrationConnectionSummary[] = [
+  {
+    id: '00000000-0000-0000-0000-000000000070',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    project_id: null,
+    provider: 'github',
+    scope_kind: 'workspace',
+    status: 'active',
+    config_json: '{"repo":"openai/agent-workspace","events":["issues","pull_requests"]}',
+    secret_ciphertext: null,
+    last_synced_at: null,
+    created_at: '2026-05-01T10:00:00Z',
+    updated_at: '2026-05-01T10:00:00Z',
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000071',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    project_id: '00000000-0000-0000-0000-000000000020',
+    provider: 'github',
+    scope_kind: 'project',
+    status: 'disabled',
+    config_json: '{"repo":"openai/project-board"}',
+    secret_ciphertext: null,
+    last_synced_at: null,
+    created_at: '2026-05-02T10:00:00Z',
+    updated_at: '2026-05-02T10:00:00Z',
   },
 ];
 

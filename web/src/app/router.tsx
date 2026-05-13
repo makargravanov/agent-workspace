@@ -12,6 +12,7 @@ import {
 import { ProjectOverviewPage } from '../features/projects/ProjectOverviewPage';
 import { ProjectRouteLayout } from '../features/projects/ProjectRouteLayout';
 import { WorkspacePage } from '../features/projects/WorkspacePage';
+import { IntegrationConnectionsPage } from '../features/integrations/IntegrationConnectionsPage';
 import { NotesPage } from '../features/notes/NotesPage';
 import { TasksPage } from '../features/tasks/TasksPage';
 import { WorkspacesPage } from '../features/workspaces/WorkspacesPage';
@@ -38,6 +39,7 @@ export function AppRouter() {
           <Route path="/workspaces/:workspaceSlug" element={<WorkspacePage />} />
           <Route path="/workspaces/:workspaceSlug/agents" element={<AgentsPage />} />
           <Route path="/workspaces/:workspaceSlug/agents/:agentId" element={<AgentDetailsPage />} />
+          <Route path="/workspaces/:workspaceSlug/integrations" element={<IntegrationConnectionsPage />} />
           <Route path="/workspaces/:workspaceSlug/projects/:projectSlug" element={<ProjectRouteLayout />}>
             <Route index element={<ProjectOverviewPage />} />
             <Route path="tasks" element={<TasksPage />} />

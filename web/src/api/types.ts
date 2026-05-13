@@ -268,3 +268,34 @@ export interface CreatedAgentCredential {
   credential: AgentCredentialSummary;
   secret: string;
 }
+
+export type IntegrationProvider = 'github';
+export type IntegrationScopeKind = 'workspace' | 'project';
+export type IntegrationConnectionStatus = 'active' | 'disabled' | 'error';
+
+export interface IntegrationConnectionSummary {
+  id: string;
+  workspace_id: string;
+  project_id: string | null;
+  provider: IntegrationProvider | string;
+  scope_kind: IntegrationScopeKind | string;
+  status: IntegrationConnectionStatus | string;
+  config_json: string | null;
+  secret_ciphertext: string | null;
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateIntegrationConnectionPayload {
+  provider: IntegrationProvider;
+  scope_kind: IntegrationScopeKind;
+  project_id?: string | null;
+  status?: IntegrationConnectionStatus;
+  config_json?: unknown;
+}
+
+export interface UpdateIntegrationConnectionPayload {
+  status?: IntegrationConnectionStatus;
+  config_json?: unknown;
+}
