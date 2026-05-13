@@ -1,4 +1,7 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs, io,
+    path::{Path as FsPath, PathBuf},
+};
 
 use axum::{
     extract::{Path, Query, State},
@@ -101,6 +104,16 @@ fn storage_root(state: &AppState) -> PathBuf {
 
 fn asset_path(state: &AppState, storage_key: &str) -> PathBuf {
     storage_root(state).join(storage_key)
+}
+
+fn read_asset_file(path: &FsPath, request_id: &str) -> Result<Vec<u8>, ApiError> {
+    fs::read(path).map_err(|e| {
+        if e.kind() == io::ErrorKind::NotFound {
+            ApiError::not_found(request_id, "asset file not found")
+        } else {
+            ApiError::internal(request_id, e.to_string())
+        }
+    })
 }
 
 fn validate_non_empty(value: &str, field: &str, request_id: &str) -> Result<(), ApiError> {
@@ -277,7 +290,12 @@ async fn create_asset(
         }
     };
 
-    sqlx::query(insert_sql)
+    fs::create_dir_all(storage_root(&state))
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    fs::write(asset_path(&state, &storage_key), &content)
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+
+    if let Err(e) = sqlx::query(insert_sql)
         .bind(&asset_id)
         .bind(&workspace_id)
         .bind(&project_id)
@@ -289,12 +307,10 @@ async fn create_asset(
         .bind(&storage_key)
         .execute(&state.pool)
         .await
-        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
-
-    fs::create_dir_all(storage_root(&state))
-        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
-    fs::write(asset_path(&state, &storage_key), &content)
-        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    {
+        let _ = fs::remove_file(asset_path(&state, &storage_key));
+        return Err(ApiError::internal(&request_id, e.to_string()));
+    }
 
     let asset = fetch_asset(&state.pool, &project_id, &asset_id)
         .await
@@ -569,8 +585,7 @@ async fn download_asset(
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
         .ok_or_else(|| ApiError::not_found(&request_id, "asset not found"))?;
 
-    let bytes = fs::read(asset_path(&state, &asset.storage_key))
-        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    let bytes = read_asset_file(&asset_path(&state, &asset.storage_key), &request_id)?;
     let disposition = if query.disposition.as_deref() == Some("inline") {
         "inline"
     } else {
@@ -734,8 +749,40 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(download.status(), StatusCode::OK);
+        assert_eq!(
+            download
+                .headers()
+                .get(header::CONTENT_DISPOSITION)
+                .and_then(|value| value.to_str().ok()),
+            Some("attachment; filename=\"note.txt\"")
+        );
         let downloaded = to_bytes(download.into_body(), usize::MAX).await.unwrap();
         assert_eq!(&downloaded[..], b"hello assets");
+
+        let inline_download = app
+            .clone()
+            .oneshot(request(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/assets/{}/download?disposition=inline",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG,
+                        asset_id
+                    ))
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, member_id.clone()),
+                Body::empty(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(inline_download.status(), StatusCode::OK);
+        assert_eq!(
+            inline_download
+                .headers()
+                .get(header::CONTENT_DISPOSITION)
+                .and_then(|value| value.to_str().ok()),
+            Some("inline; filename=\"note.txt\"")
+        );
 
         let delete = app
             .clone()
@@ -757,6 +804,58 @@ mod tests {
         assert_eq!(delete.status(), StatusCode::NO_CONTENT);
 
         assert!(!storage_dir.join(&asset_id).exists());
+    }
+
+    #[tokio::test]
+    async fn download_missing_asset_file_returns_not_found() {
+        let (app, storage_dir, _, _, member_id) = setup().await;
+        let payload = json!({
+            "file_name": "lost.png",
+            "media_type": "image/png",
+            "content_base64": STANDARD.encode("image bytes"),
+        });
+
+        let response = app
+            .clone()
+            .oneshot(request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/assets",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG
+                    ))
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, member_id.clone()),
+                Body::from(serde_json::to_vec(&payload).unwrap()),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let asset_id = created["data"]["id"].as_str().unwrap().to_string();
+        fs::remove_file(storage_dir.join(&asset_id)).unwrap();
+
+        let download = app
+            .oneshot(request(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/assets/{}/download?disposition=inline",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG,
+                        asset_id
+                    ))
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, member_id),
+                Body::empty(),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(download.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

@@ -28,11 +28,15 @@ services:
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI:-}
       GITHUB_OAUTH_SUCCESS_REDIRECT_PATH: ${GITHUB_OAUTH_SUCCESS_REDIRECT_PATH:-/}
+      ASSET_STORAGE_DIR: /var/lib/agent-workspace/assets
     ports:
       - "127.0.0.1:${API_HOST_PORT:-18080}:8080"
+    volumes:
+      - asset-data:/var/lib/agent-workspace/assets
     depends_on:
       postgres:
         condition: service_healthy
 
 volumes:
   postgres-data:
+  asset-data:

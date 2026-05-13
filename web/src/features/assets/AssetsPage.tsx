@@ -42,6 +42,9 @@ export function AssetsPage() {
   const previewUrl = previewAsset
     ? assetPreviewUrl(workspaceSlug, projectSlug, previewAsset.id)
     : '';
+  const previewDownloadUrl = previewAsset
+    ? assetDownloadUrl(workspaceSlug, projectSlug, previewAsset.id)
+    : '';
 
   useEffect(() => {
     if (!previewAsset) {
@@ -405,7 +408,7 @@ export function AssetsPage() {
                 </a>
                 <a
                   className="iconButton compactIconButton"
-                  href={previewUrl}
+                  href={previewDownloadUrl}
                   download={previewAsset.file_name}
                   title="Download"
                   aria-label={`Download ${previewAsset.file_name}`}
