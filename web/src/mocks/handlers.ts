@@ -52,6 +52,7 @@ function recordActivity(event: Omit<ActivityEvent, 'id' | 'occurred_at' | 'actor
       id: crypto.randomUUID(),
       actor_type: mockSession.actor?.actor_kind ?? 'human',
       actor_id: mockSession.actor?.actor_id ?? null,
+      actor_github_login: mockSession.actor?.actor_kind === 'human' ? 'makargravanov' : null,
       occurred_at: new Date().toISOString(),
     },
     ...activityStore,

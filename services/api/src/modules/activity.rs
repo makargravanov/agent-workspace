@@ -109,15 +109,20 @@ async fn list_workspace_activity(
                 CAST(ae.project_id AS TEXT) AS project_id,
                 ae.actor_type,
                 CAST(ae.actor_id AS TEXT) AS actor_id,
-                hi.display_name AS actor_github_login,
+                (
+                    SELECT hi.display_name
+                    FROM human_identities hi
+                    WHERE hi.workspace_member_id = ae.actor_id
+                      AND hi.provider = 'github'
+                    ORDER BY hi.updated_at DESC
+                    LIMIT 1
+                ) AS actor_github_login,
                 ae.entity_type,
                 CAST(ae.entity_id AS TEXT) AS entity_id,
                 ae.event_type,
                 CAST(ae.payload_json AS TEXT) AS payload_json,
                 CAST(ae.occurred_at AS TEXT) AS occurred_at
          FROM audit_events ae
-         LEFT JOIN human_identities hi
-           ON hi.provider = 'github' AND CAST(hi.workspace_member_id AS TEXT) = CAST(ae.actor_id AS TEXT)
          WHERE CAST(ae.workspace_id AS TEXT) = $1
          ORDER BY ae.occurred_at DESC
          LIMIT $2 OFFSET $3",
@@ -195,15 +200,20 @@ async fn list_project_activity(
                 CAST(ae.project_id AS TEXT) AS project_id,
                 ae.actor_type,
                 CAST(ae.actor_id AS TEXT) AS actor_id,
-                hi.display_name AS actor_github_login,
+                (
+                    SELECT hi.display_name
+                    FROM human_identities hi
+                    WHERE hi.workspace_member_id = ae.actor_id
+                      AND hi.provider = 'github'
+                    ORDER BY hi.updated_at DESC
+                    LIMIT 1
+                ) AS actor_github_login,
                 ae.entity_type,
                 CAST(ae.entity_id AS TEXT) AS entity_id,
                 ae.event_type,
                 CAST(ae.payload_json AS TEXT) AS payload_json,
                 CAST(ae.occurred_at AS TEXT) AS occurred_at
          FROM audit_events ae
-         LEFT JOIN human_identities hi
-           ON hi.provider = 'github' AND CAST(hi.workspace_member_id AS TEXT) = CAST(ae.actor_id AS TEXT)
          WHERE CAST(ae.workspace_id AS TEXT) = $1 AND CAST(ae.project_id AS TEXT) = $2
          ORDER BY ae.occurred_at DESC
          LIMIT $3 OFFSET $4",
@@ -261,7 +271,7 @@ mod tests {
     const WS_SLUG: &str = "ops-workspace";
     const PROJECT_SLUG: &str = "ops-project";
 
-    async fn setup(role: &str) -> (axum::Router, String, String) {
+    async fn setup(role: &str) -> (axum::Router, sqlx::AnyPool, String, String) {
         let pool = any_test_pool().await;
         let scope = seed_workspace_member_project(
             &pool,
@@ -274,13 +284,13 @@ mod tests {
             role,
         )
         .await;
-        let router = build_router(AppState::new(pool, DatabaseBackend::Sqlite));
-        (router, scope.member_id, scope.workspace_id)
+        let router = build_router(AppState::new(pool.clone(), DatabaseBackend::Sqlite));
+        (router, pool, scope.member_id, scope.workspace_id)
     }
 
     #[tokio::test]
     async fn workspace_activity_contains_agent_event() {
-        let (app, member_id, _) = setup("owner").await;
+        let (app, _, member_id, _) = setup("owner").await;
         let create = app
             .clone()
             .oneshot(json_request(
@@ -316,7 +326,17 @@ mod tests {
 
     #[tokio::test]
     async fn project_activity_is_scoped_to_project() {
-        let (app, member_id, workspace_id) = setup("owner").await;
+        let (app, pool, member_id, workspace_id) = setup("owner").await;
+        sqlx::query(
+            "INSERT INTO human_identities
+             (id, workspace_member_id, provider, provider_subject, display_name)
+             VALUES ($1, $2, 'github', 'github:user:6206084', 'makargravanov')",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&member_id)
+        .execute(&pool)
+        .await
+        .unwrap();
         let create = app
             .clone()
             .oneshot(json_request(
@@ -357,11 +377,16 @@ mod tests {
             .unwrap()
             .iter()
             .all(|item| item["project_id"].is_string()));
+        assert!(body["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["actor_github_login"].as_str() == Some("makargravanov")));
     }
 
     #[tokio::test]
     async fn workspace_activity_paginates() {
-        let (app, member_id, _) = setup("owner").await;
+        let (app, _, member_id, _) = setup("owner").await;
         for key in ["ops-bot-a", "ops-bot-b"] {
             let create = app
                 .clone()
@@ -398,7 +423,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_member_cannot_read_activity() {
-        let (app, _, _) = setup("owner").await;
+        let (app, _, _, _) = setup("owner").await;
         let response = app
             .oneshot(
                 Request::builder()
