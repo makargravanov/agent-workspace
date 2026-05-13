@@ -887,6 +887,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_asset_accepts_payload_larger_than_default_json_limit() {
+        let (app, _storage_dir, _, _, member_id) = setup().await;
+        let content = vec![b'x'; 2_200_000];
+        let payload = json!({
+            "file_name": "large-image.bin",
+            "media_type": "application/octet-stream",
+            "content_base64": STANDARD.encode(content),
+        });
+
+        let response = app
+            .oneshot(request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/assets",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG
+                    ))
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, member_id),
+                Body::from(serde_json::to_vec(&payload).unwrap()),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
     async fn update_asset_changes_metadata_and_content() {
         let (app, _storage_dir, _, _, member_id) = setup().await;
         let created = app

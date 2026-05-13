@@ -1,9 +1,11 @@
-use axum::Router;
+use axum::{extract::DefaultBodyLimit, Router};
 use tower_http::trace::TraceLayer;
 
 use crate::http::request_id::request_id_layer;
 use crate::modules;
 use crate::state::AppState;
+
+const API_BODY_LIMIT_BYTES: usize = 25 * 1024 * 1024;
 
 pub fn build_router(state: AppState) -> Router {
     Router::<AppState>::new()
@@ -34,6 +36,7 @@ fn api_v1_router() -> Router<AppState> {
         .merge(modules::github_integration::routes())
         .merge(modules::mcp_access::routes())
         .merge(modules::operator::routes())
+        .layer(DefaultBodyLimit::max(API_BODY_LIMIT_BYTES))
 }
 
 #[cfg(test)]
