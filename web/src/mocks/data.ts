@@ -1,6 +1,7 @@
 import type {
   AgentCredentialSummary,
   AgentSummary,
+  AssetDetail,
   DocumentDetail,
   IntegrationConnectionSummary,
   NoteDetail,
@@ -182,5 +183,21 @@ export const mockDocuments: DocumentDetail[] = [
     version: 1,
     created_at: '2026-04-01T10:00:00Z',
     updated_at: '2026-04-01T10:00:00Z',
+  },
+];
+
+export const mockAssets: AssetDetail[] = [
+  {
+    id: '00000000-0000-0000-0000-000000000080',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    project_id: '00000000-0000-0000-0000-000000000020',
+    uploaded_by_member_id: '00000000-0000-0000-0000-000000000001',
+    file_name: 'architecture-note.txt',
+    media_type: 'text/plain',
+    size_bytes: 42,
+    sha256: '7d5b2b4d2f2c6f4f5a6c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f708192a3b4c5d6',
+    storage_backend: 'local',
+    storage_key: '00000000-0000-0000-0000-000000000080',
+    created_at: '2026-05-03T10:00:00Z',
   },
 ];

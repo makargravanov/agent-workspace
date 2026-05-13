@@ -142,6 +142,20 @@ export interface DocumentDetail {
   updated_at: string;
 }
 
+export interface AssetDetail {
+  id: string;
+  workspace_id: string;
+  project_id: string;
+  uploaded_by_member_id: string | null;
+  file_name: string;
+  media_type: string;
+  size_bytes: number;
+  sha256: string | null;
+  storage_backend: string;
+  storage_key: string;
+  created_at: string;
+}
+
 export interface CreateTaskPayload {
   group_id?: string | null;
   parent_task_id?: string | null;
@@ -193,6 +207,20 @@ export interface UpdateDocumentPayload {
   parent_document_id?: string | null;
   body_format?: string;
   status?: DocumentStatus;
+}
+
+export interface CreateAssetPayload {
+  file_name: string;
+  media_type: string;
+  content_base64: string;
+  sha256?: string | null;
+}
+
+export interface UpdateAssetPayload {
+  file_name?: string;
+  media_type?: string;
+  content_base64?: string;
+  sha256?: string | null;
 }
 
 export interface RepairDocumentCyclesResult {

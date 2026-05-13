@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom';
+import { AssetsPage } from '../features/assets/AssetsPage';
 import { LoginPage } from '../features/auth/LoginPage';
 import { RootRedirect, RequireAuth } from '../features/auth/RequireAuth';
 import { AgentDetailsPage } from '../features/agents/AgentDetailsPage';
@@ -48,6 +49,7 @@ export function AppRouter() {
             <Route path="documents/:documentId" element={<DocumentViewPage />} />
             <Route path="documents/:documentId/edit" element={<EditDocumentPage />} />
             <Route path="notes" element={<NotesPage />} />
+            <Route path="assets" element={<AssetsPage />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

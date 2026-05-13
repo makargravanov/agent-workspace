@@ -559,6 +559,7 @@ textarea:focus {
 .directoryPage,
 .documentsPage,
 .notesPage,
+.assetsPage,
 .overviewPage,
 .trackerPage {
   display: grid;
@@ -870,6 +871,98 @@ textarea:focus {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
+}
+
+.assetStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.assetUploadPanel {
+  display: grid;
+  gap: 12px;
+}
+
+.assetFilePicker input {
+  padding: 8px 10px;
+  background: #fffdfa;
+}
+
+.assetUploadSummary {
+  display: grid;
+  align-content: end;
+  gap: 2px;
+  min-height: 36px;
+  color: var(--text-main);
+}
+
+.assetUploadSummary span {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.assetTablePanel {
+  background: var(--bg-panel);
+}
+
+.assetTable {
+  min-width: 920px;
+}
+
+.assetTable td {
+  color: #42526e;
+  font-size: 0.88rem;
+}
+
+.assetNameCell {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.assetNameCell svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.assetNameCell > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.assetNameCell strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-main);
+}
+
+.assetNameCell span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assetNameCell input,
+.assetTable td > input {
+  min-width: 180px;
+}
+
+.compactIconButton {
+  width: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+}
+
+.assetsEmpty {
+  margin: 14px;
 }
 
 .statCard {
@@ -2168,7 +2261,8 @@ textarea:focus {
   }
 
   .formGrid,
-  .metricGrid {
+  .metricGrid,
+  .assetStats {
     grid-template-columns: 1fr;
   }
 

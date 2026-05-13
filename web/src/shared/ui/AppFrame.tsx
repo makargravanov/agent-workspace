@@ -9,6 +9,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Paperclip,
   Plug,
   StickyNote,
   Trash2,
@@ -289,6 +290,11 @@ function getContextLinks(workspaceSlug: string, projectSlug: string): ContextLin
         icon: FileText,
         label: 'Документы',
         to: `/workspaces/${workspaceSlug}/projects/${projectSlug}/documents`,
+      },
+      {
+        icon: Paperclip,
+        label: 'Файлы',
+        to: `/workspaces/${workspaceSlug}/projects/${projectSlug}/assets`,
       },
     ];
   }

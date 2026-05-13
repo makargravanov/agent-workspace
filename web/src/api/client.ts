@@ -42,6 +42,10 @@ function buildUrl(
   return `${base}?${query}`;
 }
 
+export function apiUrl(path: string): string {
+  return `${BASE_URL}${path}`;
+}
+
 async function parseResponse<T>(res: Response): Promise<T> {
   const json: unknown = await res.json();
   if (!res.ok) {

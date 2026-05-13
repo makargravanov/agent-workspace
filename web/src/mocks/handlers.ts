@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw';
-import type { DocumentDetail, NoteDetail } from '../api/types';
+import type { AssetDetail, DocumentDetail, NoteDetail } from '../api/types';
 import {
+  mockAssets,
   mockAgents,
   mockAgentCredentials,
   mockDocuments,
@@ -22,6 +23,10 @@ let integrationConnectionStore = [...mockIntegrationConnections];
 let taskStore = [...mockTasks];
 let noteStore = [...mockNotes];
 let documentStore = [...mockDocuments];
+let assetStore = [...mockAssets];
+let assetContentStore = new Map<string, string>(
+  mockAssets.map((asset) => [asset.id, btoa(`Mock content for ${asset.file_name}`)]),
+);
 
 function listEnvelope<T>(items: T[], requestId = 'mock-req') {
   return { data: { items, next_cursor: null }, meta: { request_id: requestId } };
@@ -506,4 +511,116 @@ export const handlers = [
     );
     return new HttpResponse(null, { status: 204 });
   }),
+
+  http.get(`${BASE}/workspaces/:ws/projects/:proj/assets`, ({ params }) => {
+    const project = projectStore.find((item) => item.slug === params.proj);
+    const items = project ? assetStore.filter((asset) => asset.project_id === project.id) : [];
+    return HttpResponse.json(listEnvelope(items));
+  }),
+
+  http.get(`${BASE}/workspaces/:ws/projects/:proj/assets/:assetId`, ({ params }) => {
+    const asset = assetStore.find((item) => item.id === params.assetId);
+    return asset ? HttpResponse.json(itemEnvelope(asset)) : notFound('asset_not_found', 'Asset not found');
+  }),
+
+  http.post(`${BASE}/workspaces/:ws/projects/:proj/assets`, async ({ request, params }) => {
+    const project = projectStore.find((item) => item.slug === params.proj);
+    if (!project) {
+      return notFound('project_not_found', 'Project not found');
+    }
+    const body = (await request.json()) as {
+      file_name: string;
+      media_type: string;
+      content_base64: string;
+      sha256?: string | null;
+    };
+    if (!body.content_base64 || !body.file_name?.trim() || !body.media_type?.trim()) {
+      return HttpResponse.json(
+        {
+          error: {
+            code: 'validation_error',
+            message: 'file_name, media_type and content_base64 are required',
+            details: null,
+            request_id: 'mock-req',
+          },
+        },
+        { status: 422 },
+      );
+    }
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const size = base64Size(body.content_base64);
+    const created: AssetDetail = {
+      id,
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      uploaded_by_member_id: mockSession.actor?.actor_id ?? null,
+      file_name: body.file_name,
+      media_type: body.media_type,
+      size_bytes: size,
+      sha256: body.sha256 ?? null,
+      storage_backend: 'local',
+      storage_key: id,
+      created_at: now,
+    };
+    assetContentStore.set(id, body.content_base64);
+    assetStore = [created, ...assetStore];
+    return HttpResponse.json(itemEnvelope(created), { status: 201 });
+  }),
+
+  http.patch(`${BASE}/workspaces/:ws/projects/:proj/assets/:assetId`, async ({ request, params }) => {
+    const index = assetStore.findIndex((item) => item.id === params.assetId);
+    if (index === -1) {
+      return notFound('asset_not_found', 'Asset not found');
+    }
+    const body = (await request.json()) as Partial<{
+      file_name: string;
+      media_type: string;
+      content_base64: string;
+      sha256: string | null;
+    }>;
+    const current = assetStore[index];
+    const updated = {
+      ...current,
+      file_name: body.file_name ?? current.file_name,
+      media_type: body.media_type ?? current.media_type,
+      size_bytes: body.content_base64 ? base64Size(body.content_base64) : current.size_bytes,
+      sha256: body.sha256 === undefined ? current.sha256 : body.sha256,
+    };
+    if (body.content_base64) {
+      assetContentStore.set(current.id, body.content_base64);
+    }
+    assetStore = assetStore.map((item, itemIndex) => (itemIndex === index ? updated : item));
+    return HttpResponse.json(itemEnvelope(updated));
+  }),
+
+  http.delete(`${BASE}/workspaces/:ws/projects/:proj/assets/:assetId`, ({ params }) => {
+    assetStore = assetStore.filter((asset) => asset.id !== params.assetId);
+    assetContentStore.delete(params.assetId as string);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get(`${BASE}/workspaces/:ws/projects/:proj/assets/:assetId/download`, ({ params }) => {
+    const asset = assetStore.find((item) => item.id === params.assetId);
+    if (!asset) {
+      return notFound('asset_not_found', 'Asset not found');
+    }
+    const contentBase64 = assetContentStore.get(asset.id) ?? '';
+    const bytes = Uint8Array.from(atob(contentBase64), (char) => char.charCodeAt(0));
+    return new HttpResponse(bytes, {
+      status: 200,
+      headers: {
+        'Content-Type': asset.media_type,
+        'Content-Disposition': `attachment; filename="${asset.file_name}"`,
+      },
+    });
+  }),
 ];
+
+function base64Size(contentBase64: string): number {
+  try {
+    return atob(contentBase64).length;
+  } catch {
+    return 0;
+  }
+}
