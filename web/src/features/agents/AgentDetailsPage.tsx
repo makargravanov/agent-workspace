@@ -19,9 +19,11 @@ import { FullPageMessage } from '../../shared/ui/FullPageMessage';
 
 const DEFAULT_SCOPES = [
   'tasks:read',
+  'tasks:write',
   'tasks:write_status',
   'task_groups:read',
   'documents:read',
+  'documents:write',
   'assets:read',
   'notes:read',
   'notes:write',

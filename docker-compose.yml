@@ -53,6 +53,9 @@ services:
     restart: unless-stopped
     environment:
       AGENT_WORKSPACE_API_URL: http://api:8080
+      AGENT_WORKSPACE_AGENT_TOKEN: ${AGENT_WORKSPACE_AGENT_TOKEN:?AGENT_WORKSPACE_AGENT_TOKEN is required for mcp-bridge}
+      AGENT_WORKSPACE_WORKSPACE_SLUG: ${AGENT_WORKSPACE_WORKSPACE_SLUG:-}
+      AGENT_WORKSPACE_PROJECT_SLUG: ${AGENT_WORKSPACE_PROJECT_SLUG:-}
     depends_on:
       api:
         condition: service_started

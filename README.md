@@ -55,6 +55,8 @@ web/                   React + TypeScript фронтенд
 4. Локальный запуск MCP-утилиты без Docker:
 
    ```bash
+   export AGENT_WORKSPACE_API_URL=http://localhost:8080
+   export AGENT_WORKSPACE_AGENT_TOKEN=<agent credential secret>
    cargo run -p agent-workspace-mcp -- stdio
    ```
 

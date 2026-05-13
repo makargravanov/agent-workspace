@@ -94,6 +94,22 @@ pub fn require_agent_scope_for_project(
     required_scope: &str,
     request_id: &str,
 ) -> Result<(), ApiError> {
+    require_agent_any_scope_for_project(
+        actor,
+        workspace_id,
+        project_id,
+        &[required_scope],
+        request_id,
+    )
+}
+
+pub fn require_agent_any_scope_for_project(
+    actor: &ActorContext,
+    workspace_id: &str,
+    project_id: &str,
+    required_scopes: &[&str],
+    request_id: &str,
+) -> Result<(), ApiError> {
     match actor.actor_kind {
         ActorKind::Agent => {}
         ActorKind::System => {
@@ -126,10 +142,15 @@ pub fn require_agent_scope_for_project(
         }
     }
 
-    if !actor.scopes.iter().any(|scope| scope == required_scope) {
+    if !actor
+        .scopes
+        .iter()
+        .any(|scope| required_scopes.iter().any(|required| scope == required))
+    {
+        let expected = required_scopes.join("' or '");
         return Err(ApiError::forbidden(
             request_id,
-            format!("missing required scope '{required_scope}'"),
+            format!("missing required scope '{expected}'"),
         ));
     }
 
@@ -146,21 +167,58 @@ pub async fn require_project_access(
     request_id: &str,
 ) -> Result<(), ApiError> {
     match actor.actor_kind {
-        ActorKind::Human => require_human_project_role(
-            pool,
-            actor,
-            workspace_id,
-            project_id,
-            human_role,
-            request_id,
-        )
-        .await,
+        ActorKind::Human => {
+            require_human_project_role(
+                pool,
+                actor,
+                workspace_id,
+                project_id,
+                human_role,
+                request_id,
+            )
+            .await
+        }
         ActorKind::Agent => {
             let scope = agent_scope.ok_or_else(|| {
                 ApiError::forbidden(request_id, "agent credentials cannot access this endpoint")
             })?;
             require_agent_scope_for_project(actor, workspace_id, project_id, scope, request_id)
         }
+        ActorKind::System => Err(ApiError::unauthorised(
+            request_id,
+            "authentication is required",
+        )),
+    }
+}
+
+pub async fn require_project_access_any_agent_scope(
+    pool: &sqlx::AnyPool,
+    actor: &ActorContext,
+    workspace_id: &str,
+    project_id: &str,
+    human_role: WorkspaceRole,
+    agent_scopes: &[&str],
+    request_id: &str,
+) -> Result<(), ApiError> {
+    match actor.actor_kind {
+        ActorKind::Human => {
+            require_human_project_role(
+                pool,
+                actor,
+                workspace_id,
+                project_id,
+                human_role,
+                request_id,
+            )
+            .await
+        }
+        ActorKind::Agent => require_agent_any_scope_for_project(
+            actor,
+            workspace_id,
+            project_id,
+            agent_scopes,
+            request_id,
+        ),
         ActorKind::System => Err(ApiError::unauthorised(
             request_id,
             "authentication is required",
@@ -201,7 +259,9 @@ async fn require_human_project_role(
     let workspace_role = row
         .as_ref()
         .and_then(|row| WorkspaceRole::from_db(&row.role))
-        .ok_or_else(|| ApiError::forbidden(request_id, "actor does not have access to this workspace"))?;
+        .ok_or_else(|| {
+            ApiError::forbidden(request_id, "actor does not have access to this workspace")
+        })?;
 
     if workspace_role == WorkspaceRole::Owner {
         return Ok(());
@@ -235,7 +295,9 @@ async fn require_human_project_role(
     let project_role = row
         .as_ref()
         .and_then(|row| WorkspaceRole::from_db(&row.role))
-        .ok_or_else(|| ApiError::forbidden(request_id, "actor does not have access to this project"))?;
+        .ok_or_else(|| {
+            ApiError::forbidden(request_id, "actor does not have access to this project")
+        })?;
 
     if project_role < required_role {
         return Err(ApiError::forbidden(

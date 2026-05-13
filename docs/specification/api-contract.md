@@ -242,10 +242,10 @@
 | Method | Path | Назначение | Доступ | Приоритет |
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/tasks` | список задач с фильтрами | human, agent `tasks:read` | foundation |
-| `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/tasks` | создать задачу | human | foundation |
+| `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/tasks` | создать задачу | human, agent `tasks:write` | foundation |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/tasks/{taskId}` | получить задачу | human, agent `tasks:read` | foundation |
-| `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/tasks/{taskId}` | обновить задачу | human | mvp |
-| `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/tasks/{taskId}/status` | ограниченно обновить статус | human, agent `tasks:write_status` | foundation |
+| `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/tasks/{taskId}` | обновить задачу | human, agent `tasks:write` | mvp |
+| `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/tasks/{taskId}/status` | ограниченно обновить статус | human, agent `tasks:write_status` or `tasks:write` | foundation |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/tasks/{taskId}/dependencies` | получить блокировки и зависимости | human, agent `tasks:read` | mvp |
 | `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/tasks/{taskId}/dependencies` | создать зависимость | human | mvp |
 | `DELETE` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/tasks/{taskId}/dependencies/{dependencyId}` | удалить зависимость | human | mvp |
@@ -255,10 +255,10 @@
 | Method | Path | Назначение | Доступ | Приоритет |
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents` | дерево или список документов | human, agent `documents:read` | mvp |
-| `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents` | создать документ | human | mvp |
+| `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents` | создать документ | human, agent `documents:write` | mvp |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents/{documentId}` | получить документ | human, agent `documents:read` | mvp |
-| `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents/{documentId}` | обновить документ | human | mvp |
-| `DELETE` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents/{documentId}` | удалить документ | human | mvp |
+| `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents/{documentId}` | обновить документ | human, agent `documents:write` | mvp |
+| `DELETE` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/documents/{documentId}` | удалить документ | human, agent `documents:write` | mvp |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/notes` | список заметок | human, agent `notes:read` | foundation |
 | `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/notes` | создать заметку | human, agent `notes:write` | foundation |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/notes/{noteId}` | получить заметку | human, agent `notes:read` | mvp |
@@ -340,7 +340,10 @@
   "project_id": "uuid",
   "scopes": [
     "tasks:read",
+    "tasks:write",
     "tasks:write_status",
+    "documents:read",
+    "documents:write",
     "notes:write"
   ],
   "expires_at": null
@@ -354,9 +357,11 @@
 | Scope | Разрешенные операции |
 | --- | --- |
 | `tasks:read` | `GET` task list/detail/dependencies |
+| `tasks:write` | `POST`, `PATCH`, `DELETE` tasks and `PATCH` task status |
 | `tasks:write_status` | `PATCH` task status |
 | `task_groups:read` | `GET` task group list/detail |
 | `documents:read` | `GET` documents |
+| `documents:write` | `POST`, `PATCH`, `DELETE`, move documents |
 | `assets:read` | `GET` asset metadata/download |
 | `notes:read` | `GET` notes |
 | `notes:write` | `POST`, `PATCH`, `DELETE` notes |

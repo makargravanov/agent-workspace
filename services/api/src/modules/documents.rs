@@ -4,8 +4,8 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::db::DatabaseBackend;
@@ -333,12 +333,7 @@ fn would_create_document_cycle(
 ) -> bool {
     let parent_by_id: HashMap<&str, Option<&str>> = documents
         .iter()
-        .map(|document| {
-            (
-                document.id.as_str(),
-                document.parent_document_id.as_deref(),
-            )
-        })
+        .map(|document| (document.id.as_str(), document.parent_document_id.as_deref()))
         .collect();
     let mut current_id = Some(candidate_parent_id);
     let mut visited = HashSet::<&str>::new();
@@ -449,7 +444,7 @@ async fn create_document(
         &workspace_id,
         &project_id,
         WorkspaceRole::Editor,
-        None,
+        Some("documents:write"),
         &request_id,
     )
     .await?;
@@ -587,7 +582,7 @@ async fn update_document(
         &workspace_id,
         &project_id,
         WorkspaceRole::Editor,
-        None,
+        Some("documents:write"),
         &request_id,
     )
     .await?;
@@ -745,7 +740,7 @@ async fn delete_document(
         &workspace_id,
         &project_id,
         WorkspaceRole::Editor,
-        None,
+        Some("documents:write"),
         &request_id,
     )
     .await?;
@@ -920,7 +915,7 @@ async fn move_document(
         &workspace_id,
         &project_id,
         WorkspaceRole::Editor,
-        None,
+        Some("documents:write"),
         &request_id,
     )
     .await?;
@@ -1084,8 +1079,11 @@ mod tests {
 
     const ACTOR_KIND: &str = "x-actor-kind";
     const ACTOR_ID: &str = "x-actor-id";
+    const WORKSPACE_ID: &str = "x-workspace-id";
+    const PROJECT_ID: &str = "x-project-id";
+    const ACTOR_SCOPES: &str = "x-actor-scopes";
 
-    async fn setup() -> (axum::Router, String) {
+    async fn setup() -> (axum::Router, String, String, String) {
         let pool = any_test_pool().await;
         let workspace_id = Uuid::new_v4().to_string();
         let member_id = Uuid::new_v4().to_string();
@@ -1126,12 +1124,14 @@ mod tests {
         (
             build_router(AppState::new(pool, DatabaseBackend::Sqlite)),
             member_id,
+            workspace_id,
+            project_id,
         )
     }
 
     #[tokio::test]
     async fn document_roundtrip_and_version_conflict() {
-        let (router, member_id) = setup().await;
+        let (router, member_id, _workspace_id, _project_id) = setup().await;
         let create_resp = router
             .clone()
             .oneshot(
@@ -1208,7 +1208,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_get_and_delete_document() {
-        let (router, member_id) = setup().await;
+        let (router, member_id, _workspace_id, _project_id) = setup().await;
         let create_resp = router
             .clone()
             .oneshot(
@@ -1275,7 +1275,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_document_rejects_empty_title() {
-        let (router, member_id) = setup().await;
+        let (router, member_id, _workspace_id, _project_id) = setup().await;
         let response = router
             .oneshot(
                 Request::builder()
@@ -1297,5 +1297,172 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn agent_with_documents_write_can_create_update_move_and_delete_document() {
+        let (router, _member_id, workspace_id, project_id) = setup().await;
+
+        let create_parent = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/documents")
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "agent")
+                    .header(ACTOR_ID, Uuid::new_v4().to_string())
+                    .header(WORKSPACE_ID, &workspace_id)
+                    .header(PROJECT_ID, &project_id)
+                    .header(ACTOR_SCOPES, "documents:write")
+                    .body(Body::from(
+                        json!({
+                            "slug": "parent-doc",
+                            "title": "Parent",
+                            "body_md": "# Parent"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_parent.status(), StatusCode::CREATED);
+        let parent: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(create_parent.into_body(), 1024 * 1024)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let parent_id = parent["data"]["id"].as_str().unwrap().to_string();
+
+        let create_child = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/documents")
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "agent")
+                    .header(ACTOR_ID, Uuid::new_v4().to_string())
+                    .header(WORKSPACE_ID, &workspace_id)
+                    .header(PROJECT_ID, &project_id)
+                    .header(ACTOR_SCOPES, "documents:write")
+                    .body(Body::from(
+                        json!({
+                            "slug": "child-doc",
+                            "title": "Child",
+                            "body_md": "# Child"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_child.status(), StatusCode::CREATED);
+        let child: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(create_child.into_body(), 1024 * 1024)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let child_id = child["data"]["id"].as_str().unwrap().to_string();
+
+        let update_resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!(
+                        "/api/v1/workspaces/dev-workspace/projects/main-project/documents/{child_id}"
+                    ))
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "agent")
+                    .header(ACTOR_ID, Uuid::new_v4().to_string())
+                    .header(WORKSPACE_ID, &workspace_id)
+                    .header(PROJECT_ID, &project_id)
+                    .header(ACTOR_SCOPES, "documents:write")
+                    .body(Body::from(
+                        json!({ "version": 1, "title": "Child v2" }).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(update_resp.status(), StatusCode::OK);
+
+        let move_resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/workspaces/dev-workspace/projects/main-project/documents/{child_id}/move"
+                    ))
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "agent")
+                    .header(ACTOR_ID, Uuid::new_v4().to_string())
+                    .header(WORKSPACE_ID, &workspace_id)
+                    .header(PROJECT_ID, &project_id)
+                    .header(ACTOR_SCOPES, "documents:write")
+                    .body(Body::from(
+                        json!({ "target_parent_document_id": parent_id }).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(move_resp.status(), StatusCode::OK);
+
+        let delete_resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!(
+                        "/api/v1/workspaces/dev-workspace/projects/main-project/documents/{child_id}"
+                    ))
+                    .header(ACTOR_KIND, "agent")
+                    .header(ACTOR_ID, Uuid::new_v4().to_string())
+                    .header(WORKSPACE_ID, &workspace_id)
+                    .header(PROJECT_ID, &project_id)
+                    .header(ACTOR_SCOPES, "documents:write")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(delete_resp.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn agent_with_documents_read_cannot_mutate_documents() {
+        let (router, _member_id, workspace_id, project_id) = setup().await;
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/documents")
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "agent")
+                    .header(ACTOR_ID, Uuid::new_v4().to_string())
+                    .header(WORKSPACE_ID, &workspace_id)
+                    .header(PROJECT_ID, &project_id)
+                    .header(ACTOR_SCOPES, "documents:read")
+                    .body(Body::from(
+                        json!({
+                            "slug": "forbidden-doc",
+                            "title": "Forbidden",
+                            "body_md": "# Forbidden"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }

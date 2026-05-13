@@ -111,7 +111,7 @@ export const mockAgentCredentials: AgentCredentialSummary[] = [
     agent_id: '00000000-0000-0000-0000-000000000030',
     label: 'cli-local',
     secret_prefix: 'awsk_',
-    scope_policy: ['tasks:read', 'notes:write'],
+    scope_policy: ['tasks:read', 'tasks:write', 'notes:write'],
     status: 'active',
     expires_at: null,
     created_at: '2026-03-11T10:00:00Z',

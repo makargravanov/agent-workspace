@@ -22,7 +22,7 @@ use uuid::Uuid;
 use crate::{
     db::DatabaseBackend,
     http::{
-        access::{require_project_access, WorkspaceRole},
+        access::{require_project_access, require_project_access_any_agent_scope, WorkspaceRole},
         actor::ActorContext,
         audit::{record_audit, AuditEvent},
         error::ApiError,
@@ -462,7 +462,7 @@ async fn update_task(
         &project.workspace_id,
         &project.id,
         WorkspaceRole::Editor,
-        None,
+        Some("tasks:write"),
         &request_id,
     )
     .await?;
@@ -672,7 +672,7 @@ async fn create_task(
         &project.workspace_id,
         &project.id,
         WorkspaceRole::Editor,
-        None,
+        Some("tasks:write"),
         &request_id,
     )
     .await?;
@@ -759,7 +759,7 @@ async fn create_task(
 /// `PATCH /workspaces/:workspace_slug/projects/:project_slug/tasks/:task_id/status`
 ///
 /// Updates only the `status` field of a task.  Both human users and agents with
-/// the `tasks:write_status` scope may call this endpoint.
+/// the `tasks:write_status` or broader `tasks:write` scope may call this endpoint.
 async fn update_task_status(
     State(state): State<AppState>,
     Path((workspace_slug, project_slug, task_id)): Path<(String, String, String)>,
@@ -784,13 +784,13 @@ async fn update_task_status(
         })?
         .ok_or_else(|| ApiError::not_found(&request_id, "project not found"))?;
 
-    require_project_access(
+    require_project_access_any_agent_scope(
         &state.pool,
         &actor,
         &project.workspace_id,
         &project.id,
         WorkspaceRole::Editor,
-        Some("tasks:write_status"),
+        &["tasks:write_status", "tasks:write"],
         &request_id,
     )
     .await?;
@@ -873,7 +873,7 @@ async fn delete_task(
         &project.workspace_id,
         &project.id,
         WorkspaceRole::Editor,
-        None,
+        Some("tasks:write"),
         &request_id,
     )
     .await?;
@@ -1086,6 +1086,9 @@ mod route_tests {
     const TEST_RID: &str = "test-request-id";
     const ACTOR_KIND: &str = "x-actor-kind";
     const ACTOR_ID: &str = "x-actor-id";
+    const WORKSPACE_ID: &str = "x-workspace-id";
+    const PROJECT_ID: &str = "x-project-id";
+    const ACTOR_SCOPES: &str = "x-actor-scopes";
 
     async fn setup() -> (
         AppState,
@@ -1250,6 +1253,180 @@ mod route_tests {
                 .await
                 .unwrap();
         assert_eq!(dependency_count, 0);
+    }
+
+    #[tokio::test]
+    async fn agent_with_tasks_write_can_create_update_status_and_delete_task() {
+        let (state, router, _member_id, workspace_id, project_id, _parent_task_id, _child_task_id) =
+            setup().await;
+
+        let create_resp = router
+            .clone()
+            .oneshot(
+                Request::post(format!(
+                    "/api/v1/workspaces/{}/projects/{}/tasks",
+                    fixtures::WORKSPACE_SLUG,
+                    fixtures::PROJECT_SLUG
+                ))
+                .header(RID, TEST_RID)
+                .header("content-type", "application/json")
+                .header(ACTOR_KIND, "agent")
+                .header(ACTOR_ID, Uuid::new_v4().to_string())
+                .header(WORKSPACE_ID, &workspace_id)
+                .header(PROJECT_ID, &project_id)
+                .header(ACTOR_SCOPES, "tasks:write")
+                .body(Body::from(
+                    serde_json::json!({ "title": "Agent-created task", "priority": "normal" })
+                        .to_string(),
+                ))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), StatusCode::CREATED);
+        let created: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(create_resp.into_body(), 1024 * 1024)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let task_id = created["data"]["id"].as_str().unwrap().to_string();
+
+        let update_resp = router
+            .clone()
+            .oneshot(
+                Request::patch(format!(
+                    "/api/v1/workspaces/{}/projects/{}/tasks/{task_id}",
+                    fixtures::WORKSPACE_SLUG,
+                    fixtures::PROJECT_SLUG
+                ))
+                .header(RID, TEST_RID)
+                .header("content-type", "application/json")
+                .header(ACTOR_KIND, "agent")
+                .header(ACTOR_ID, Uuid::new_v4().to_string())
+                .header(WORKSPACE_ID, &workspace_id)
+                .header(PROJECT_ID, &project_id)
+                .header(ACTOR_SCOPES, "tasks:write")
+                .body(Body::from(
+                    serde_json::json!({ "title": "Agent-updated task" }).to_string(),
+                ))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(update_resp.status(), StatusCode::OK);
+
+        let status_resp = router
+            .clone()
+            .oneshot(
+                Request::patch(format!(
+                    "/api/v1/workspaces/{}/projects/{}/tasks/{task_id}/status",
+                    fixtures::WORKSPACE_SLUG,
+                    fixtures::PROJECT_SLUG
+                ))
+                .header(RID, TEST_RID)
+                .header("content-type", "application/json")
+                .header(ACTOR_KIND, "agent")
+                .header(ACTOR_ID, Uuid::new_v4().to_string())
+                .header(WORKSPACE_ID, &workspace_id)
+                .header(PROJECT_ID, &project_id)
+                .header(ACTOR_SCOPES, "tasks:write")
+                .body(Body::from(
+                    serde_json::json!({ "status": "done" }).to_string(),
+                ))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(status_resp.status(), StatusCode::OK);
+
+        let delete_resp = router
+            .clone()
+            .oneshot(
+                Request::delete(format!(
+                    "/api/v1/workspaces/{}/projects/{}/tasks/{task_id}",
+                    fixtures::WORKSPACE_SLUG,
+                    fixtures::PROJECT_SLUG
+                ))
+                .header(RID, TEST_RID)
+                .header(ACTOR_KIND, "agent")
+                .header(ACTOR_ID, Uuid::new_v4().to_string())
+                .header(WORKSPACE_ID, &workspace_id)
+                .header(PROJECT_ID, &project_id)
+                .header(ACTOR_SCOPES, "tasks:write")
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(delete_resp.status(), StatusCode::NO_CONTENT);
+
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE id = ?")
+            .bind(&task_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn agent_with_tasks_read_cannot_mutate_tasks() {
+        let (_state, router, _member_id, workspace_id, project_id, _parent_task_id, _child_task_id) =
+            setup().await;
+
+        let response = router
+            .oneshot(
+                Request::post(format!(
+                    "/api/v1/workspaces/{}/projects/{}/tasks",
+                    fixtures::WORKSPACE_SLUG,
+                    fixtures::PROJECT_SLUG
+                ))
+                .header(RID, TEST_RID)
+                .header("content-type", "application/json")
+                .header(ACTOR_KIND, "agent")
+                .header(ACTOR_ID, Uuid::new_v4().to_string())
+                .header(WORKSPACE_ID, &workspace_id)
+                .header(PROJECT_ID, &project_id)
+                .header(ACTOR_SCOPES, "tasks:read")
+                .body(Body::from(
+                    serde_json::json!({ "title": "Should fail" }).to_string(),
+                ))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn agent_with_tasks_write_status_can_still_update_status() {
+        let (_state, router, _member_id, workspace_id, project_id, parent_task_id, _child_task_id) =
+            setup().await;
+
+        let response = router
+            .oneshot(
+                Request::patch(format!(
+                    "/api/v1/workspaces/{}/projects/{}/tasks/{parent_task_id}/status",
+                    fixtures::WORKSPACE_SLUG,
+                    fixtures::PROJECT_SLUG
+                ))
+                .header(RID, TEST_RID)
+                .header("content-type", "application/json")
+                .header(ACTOR_KIND, "agent")
+                .header(ACTOR_ID, Uuid::new_v4().to_string())
+                .header(WORKSPACE_ID, &workspace_id)
+                .header(PROJECT_ID, &project_id)
+                .header(ACTOR_SCOPES, "tasks:write_status")
+                .body(Body::from(
+                    serde_json::json!({ "status": "in_progress" }).to_string(),
+                ))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }
 
