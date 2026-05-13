@@ -33,6 +33,24 @@ const MESSAGE_MAP: Record<string, string> = {
   'failed to create document': 'Не удалось создать документ.',
   'failed to update document': 'Не удалось обновить документ.',
   'failed to delete document': 'Не удалось удалить документ.',
+  'failed to list integration connections': 'Не удалось загрузить подключения.',
+  'failed to create integration connection': 'Не удалось создать подключение.',
+  'failed to update integration connection': 'Не удалось обновить подключение.',
+  'failed to delete integration connection': 'Не удалось удалить подключение.',
+  'project_id is required when scope_kind = project':
+    'Для области проекта нужно указать проект.',
+  'project_id is only allowed when scope_kind = project':
+    'project_id допустим только для области проекта.',
+  'project not found in this workspace': 'Проект не найден в этом рабочем пространстве.',
+  'connection not found': 'Подключение не найдено.',
+  'integration_connection_not_found': 'Подключение не найдено.',
+  'provider must be github': 'Провайдер должен быть GitHub.',
+  'scope_kind must be one of: workspace, project':
+    'Тип области должен быть workspace или project.',
+  'status must be one of: active, disabled, error':
+    'Статус должен быть active, disabled или error.',
+  'Config JSON is invalid.': 'JSON конфигурации некорректен.',
+  'JSON конфигурации некорректен.': 'JSON конфигурации некорректен.',
   'document version is stale; reload before updating':
     'Документ был изменён на сервере. Сначала обновите его и повторите сохранение.',
   'authentication is required': 'Требуется авторизация.',

@@ -148,7 +148,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
               <RailLink
                 to={`/workspaces/${workspaceSlug}/integrations`}
                 icon={Plug}
-                label="Integrations"
+                label="Интеграции"
                 expanded={railExpanded}
               />
             ) : null}
@@ -308,7 +308,7 @@ function getContextLinks(workspaceSlug: string, projectSlug: string): ContextLin
       },
       {
         icon: Plug,
-        label: 'Integrations',
+        label: 'Интеграции',
         to: `/workspaces/${workspaceSlug}/integrations`,
       },
     ];

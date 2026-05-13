@@ -38,6 +38,12 @@ type ConnectionDraft = {
 
 const EMPTY_CONFIG = '{\n  "repo": "owner/repo"\n}';
 
+const STATUS_LABELS: Record<IntegrationConnectionStatus, string> = {
+  active: 'Активно',
+  disabled: 'Отключено',
+  error: 'Ошибка',
+};
+
 export function IntegrationConnectionsPage() {
   const { workspaceSlug = '' } = useParams();
   const sessionQuery = useSession();
@@ -80,13 +86,13 @@ export function IntegrationConnectionsPage() {
   }, [connections, projectFilter, projects, search]);
 
   if (connectionsQuery.isLoading || projectsQuery.isLoading) {
-    return <FullPageMessage title="Loading integration connections" embedded />;
+    return <FullPageMessage title="Загрузка подключений" embedded />;
   }
 
   if (connectionsQuery.error) {
     return (
       <FullPageMessage
-        title="Could not load integration connections"
+        title="Не удалось загрузить подключения"
         description={getErrorMessage(connectionsQuery.error)}
         embedded
       />
@@ -147,12 +153,12 @@ export function IntegrationConnectionsPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search connections"
+            placeholder="Поиск подключений"
           />
         </div>
         <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
-          <option value="all">All scopes</option>
-          <option value="workspace">Workspace scope</option>
+          <option value="all">Все области</option>
+          <option value="workspace">Область рабочего пространства</option>
           {projects.map((project) => (
             <option key={project.id} value={project.id}>
               {project.name}
@@ -166,7 +172,7 @@ export function IntegrationConnectionsPage() {
             onClick={() => setCreateOpen((value) => !value)}
           >
             {createOpen ? <X size={16} /> : <Plus size={16} />}
-            <span>{createOpen ? 'Close' : 'Add connection'}</span>
+            <span>{createOpen ? 'Закрыть' : 'Добавить подключение'}</span>
           </button>
         ) : null}
       </div>
@@ -175,7 +181,7 @@ export function IntegrationConnectionsPage() {
         <section className="composePanel">
           <div className="compactTitle">
             <Plug size={16} />
-            <h2>New connection</h2>
+            <h2>Новое подключение</h2>
           </div>
           <IntegrationConnectionForm
             projects={projects}
@@ -202,7 +208,7 @@ export function IntegrationConnectionsPage() {
           onUpdate={handleUpdate}
           onDelete={(connection) => {
             const label = `${connection.provider} / ${getProjectLabel(projects, connection.project_id)}`;
-            if (window.confirm(`Delete integration connection "${label}"?`)) {
+            if (window.confirm(`Удалить подключение "${label}"?`)) {
               deleteMutation.mutate(connection.id);
             }
           }}
@@ -237,20 +243,20 @@ export function IntegrationConnectionsTable({
   onDelete: (connection: IntegrationConnectionSummary) => void;
 }) {
   if (connections.length === 0) {
-    return <div className="emptyPanel integrationsEmpty">No integration connections</div>;
+    return <div className="emptyPanel integrationsEmpty">Подключений нет</div>;
   }
 
   return (
     <table className="taskTable integrationsTable">
       <thead>
         <tr>
-          <th>Provider</th>
-          <th>Scope</th>
-          <th>Project</th>
-          <th>Status</th>
-          <th>Config</th>
-          <th>Updated</th>
-          <th>Actions</th>
+          <th>Провайдер</th>
+          <th>Область</th>
+          <th>Проект</th>
+          <th>Статус</th>
+          <th>Конфиг</th>
+          <th>Обновлено</th>
+          <th>Действия</th>
         </tr>
       </thead>
       <tbody>
@@ -286,12 +292,12 @@ export function IntegrationConnectionsTable({
               <td>
                 {canMutate ? (
                   <div className="tableActionsCell">
-                    <button
+                <button
                       type="button"
                       className="iconButton"
                       onClick={() => onEdit(connection.id)}
-                      title="Edit"
-                      aria-label={`Edit ${connection.provider} connection`}
+                      title="Редактировать"
+                      aria-label={`Редактировать подключение ${connection.provider}`}
                     >
                       <Pencil size={16} />
                     </button>
@@ -300,14 +306,14 @@ export function IntegrationConnectionsTable({
                       className="iconButton dangerIconButton"
                       onClick={() => onDelete(connection)}
                       disabled={mutationPending}
-                      title="Delete"
-                      aria-label={`Delete ${connection.provider} connection`}
+                      title="Удалить"
+                      aria-label={`Удалить подключение ${connection.provider}`}
                     >
                       <Trash2 size={16} />
                     </button>
                   </div>
                 ) : (
-                  <span className="mutedText">Read only</span>
+                  <span className="mutedText">Только чтение</span>
                 )}
               </td>
             </tr>
@@ -356,7 +362,7 @@ export function IntegrationConnectionForm({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (draft.scope_kind === 'project' && !draft.project_id) {
-      setValidationError('Project scope requires a project.');
+      setValidationError('Для области проекта нужно выбрать проект.');
       return;
     }
     const error = onSubmit(draft);
@@ -366,7 +372,7 @@ export function IntegrationConnectionForm({
   return (
     <form className="formGrid formGridWide integrationsForm" onSubmit={handleSubmit}>
       <label className="field">
-        <span>Provider</span>
+        <span>Провайдер</span>
         <select
           value={draft.provider}
           onChange={(event) =>
@@ -378,7 +384,7 @@ export function IntegrationConnectionForm({
         </select>
       </label>
       <label className="field">
-        <span>Scope kind</span>
+        <span>Тип области</span>
         <select
           value={draft.scope_kind}
           onChange={(event) =>
@@ -390,13 +396,13 @@ export function IntegrationConnectionForm({
           }
           disabled={isEdit}
         >
-          <option value="workspace">Workspace</option>
-          <option value="project">Project</option>
+          <option value="workspace">Рабочее пространство</option>
+          <option value="project">Проект</option>
         </select>
       </label>
       {draft.scope_kind === 'project' ? (
         <label className="field">
-          <span>Project</span>
+          <span>Проект</span>
           <select
             value={draft.project_id}
             onChange={(event) =>
@@ -405,7 +411,7 @@ export function IntegrationConnectionForm({
             disabled={isEdit}
             required
           >
-            <option value="">Select project</option>
+            <option value="">Выберите проект</option>
             {projects.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}
@@ -415,7 +421,7 @@ export function IntegrationConnectionForm({
         </label>
       ) : null}
       <label className="field">
-        <span>Status</span>
+        <span>Статус</span>
         <select
           value={draft.status}
           onChange={(event) =>
@@ -425,13 +431,13 @@ export function IntegrationConnectionForm({
             }))
           }
         >
-          <option value="active">Active</option>
-          <option value="disabled">Disabled</option>
-          <option value="error">Error</option>
+          <option value="active">{STATUS_LABELS.active}</option>
+          <option value="disabled">{STATUS_LABELS.disabled}</option>
+          <option value="error">{STATUS_LABELS.error}</option>
         </select>
       </label>
       <label className="field fieldSpan2">
-        <span>Config JSON</span>
+        <span>JSON конфигурации</span>
         <textarea
           value={draft.configText}
           onChange={(event) =>
@@ -445,11 +451,11 @@ export function IntegrationConnectionForm({
       <div className="formActions integrationsFormActions">
         <button type="submit" className="primaryButton compactButton" disabled={pending}>
           <Save size={16} />
-          <span>{pending ? 'Saving...' : 'Save'}</span>
+          <span>{pending ? 'Сохранение...' : 'Сохранить'}</span>
         </button>
         <button type="button" className="secondaryButton compactButton" onClick={onCancel}>
           <CircleOff size={16} />
-          <span>Cancel</span>
+          <span>Отмена</span>
         </button>
       </div>
       {validationError ? <p className="errorText fieldSpan2">{validationError}</p> : null}
@@ -465,7 +471,7 @@ function parseConfig(value: string): { ok: true; value: unknown } | { ok: false;
   try {
     return { ok: true, value: JSON.parse(value) as unknown };
   } catch {
-    return { ok: false, message: 'Config JSON is invalid.' };
+    return { ok: false, message: 'JSON конфигурации некорректен.' };
   }
 }
 
@@ -483,21 +489,21 @@ function formatConfig(value: string | null) {
 
 function summarizeConfig(value: string | null) {
   if (!value) {
-    return 'empty';
+    return 'пусто';
   }
 
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
     const keys = Object.keys(parsed);
-    return keys.length > 0 ? keys.join(', ') : 'empty object';
+    return keys.length > 0 ? keys.join(', ') : 'пустой объект';
   } catch {
-    return 'invalid JSON';
+    return 'некорректный JSON';
   }
 }
 
 function getProjectLabel(projects: ProjectSummary[], projectId: string | null) {
   if (!projectId) {
-    return 'Workspace';
+    return 'Рабочее пространство';
   }
   return projects.find((project) => project.id === projectId)?.name ?? projectId;
 }
@@ -507,7 +513,7 @@ function normalizeStatus(status: string): IntegrationConnectionStatus {
 }
 
 function scopeLabel(scopeKind: string) {
-  return scopeKind === 'project' ? 'Project' : 'Workspace';
+  return scopeKind === 'project' ? 'Проект' : 'Рабочее пространство';
 }
 
 function formatDate(value: string) {
