@@ -252,7 +252,12 @@ jobs:
           docker compose --env-file /opt/agent-workspace/.env -f deploy/production/docker-compose.yml up -d --build
           if [ ! -f /etc/nginx/sites-available/wspace.cleadwine.ru ]; then
             install -o root -g root -m 0644 /tmp/wspace.cleadwine.ru.conf /etc/nginx/sites-available/wspace.cleadwine.ru
-            ln -sfn /etc/nginx/sites-available/wspace.cleadwine.ru /etc/nginx/sites-enabled/wspace.cleadwine.ru
+          fi
+          ln -sfn /etc/nginx/sites-available/wspace.cleadwine.ru /etc/nginx/sites-enabled/wspace.cleadwine.ru
+          if grep -q 'client_max_body_size' /etc/nginx/sites-available/wspace.cleadwine.ru; then
+            sed -i -E 's/client_max_body_size[[:space:]]+[^;]+;/client_max_body_size 25m;/g' /etc/nginx/sites-available/wspace.cleadwine.ru
+          else
+            sed -i '/server_name wspace.cleadwine.ru;/a\    client_max_body_size 25m;' /etc/nginx/sites-available/wspace.cleadwine.ru
           fi
           chown -R www-data:www-data /var/www/agent-workspace
           nginx -t
