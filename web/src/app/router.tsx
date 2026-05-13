@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { AssetsPage } from '../features/assets/AssetsPage';
+import { ProjectActivityPage, WorkspaceActivityPage } from '../features/activity/ActivityPages';
 import { LoginPage } from '../features/auth/LoginPage';
 import { RootRedirect, RequireAuth } from '../features/auth/RequireAuth';
 import { AgentDetailsPage } from '../features/agents/AgentDetailsPage';
@@ -38,6 +39,7 @@ export function AppRouter() {
         <Route element={<ProtectedAppLayout />}>
           <Route path="/workspaces" element={<WorkspacesPage />} />
           <Route path="/workspaces/:workspaceSlug" element={<WorkspacePage />} />
+          <Route path="/workspaces/:workspaceSlug/activity" element={<WorkspaceActivityPage />} />
           <Route path="/workspaces/:workspaceSlug/agents" element={<AgentsPage />} />
           <Route path="/workspaces/:workspaceSlug/agents/:agentId" element={<AgentDetailsPage />} />
           <Route path="/workspaces/:workspaceSlug/integrations" element={<IntegrationConnectionsPage />} />
@@ -50,6 +52,7 @@ export function AppRouter() {
             <Route path="documents/:documentId/edit" element={<EditDocumentPage />} />
             <Route path="notes" element={<NotesPage />} />
             <Route path="assets" element={<AssetsPage />} />
+            <Route path="activity" element={<ProjectActivityPage />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

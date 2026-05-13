@@ -1,6 +1,7 @@
 import type {
   AgentCredentialSummary,
   AgentSummary,
+  ActivityEvent,
   AssetDetail,
   DocumentDetail,
   IntegrationConnectionSummary,
@@ -200,5 +201,44 @@ export const mockAssets: AssetDetail[] = [
     storage_backend: 'local',
     storage_key: '00000000-0000-0000-0000-000000000080',
     created_at: '2026-05-03T10:00:00Z',
+  },
+];
+
+export const mockActivityEvents: ActivityEvent[] = [
+  {
+    id: '00000000-0000-0000-0000-000000000091',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    project_id: '00000000-0000-0000-0000-000000000020',
+    actor_type: 'human',
+    actor_id: '00000000-0000-0000-0000-000000000001',
+    entity_type: 'document',
+    entity_id: '00000000-0000-0000-0000-000000000060',
+    event_type: 'document.create',
+    payload_json: '{"title":"Project Guide"}',
+    occurred_at: '2026-05-01T10:00:00Z',
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000092',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    project_id: null,
+    actor_type: 'human',
+    actor_id: '00000000-0000-0000-0000-000000000001',
+    entity_type: 'agent',
+    entity_id: '00000000-0000-0000-0000-000000000030',
+    event_type: 'agent.create',
+    payload_json: '{"display_name":"Automation Bot"}',
+    occurred_at: '2026-05-02T10:00:00Z',
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000093',
+    workspace_id: '00000000-0000-0000-0000-000000000010',
+    project_id: '00000000-0000-0000-0000-000000000020',
+    actor_type: 'integration',
+    actor_id: null,
+    entity_type: 'asset',
+    entity_id: '00000000-0000-0000-0000-000000000080',
+    event_type: 'asset.create',
+    payload_json: '{"file_name":"architecture-note.txt"}',
+    occurred_at: '2026-05-03T10:00:00Z',
   },
 ];

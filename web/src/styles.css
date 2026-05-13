@@ -411,6 +411,95 @@ h3 {
   color: var(--text-main);
 }
 
+.globalSearch {
+  position: relative;
+  width: min(380px, 34vw);
+  min-width: 240px;
+}
+
+.globalSearchField {
+  width: 100%;
+  min-width: 0;
+}
+
+.searchResultsPanel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(620px, calc(100vh - 120px));
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  box-shadow: 0 18px 38px rgba(9, 30, 66, 0.16);
+}
+
+.searchPanelState {
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.searchResultGroup {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.searchResultGroup + .searchResultGroup {
+  border-top: 1px solid var(--border-soft);
+}
+
+.searchResultGroup h3 {
+  padding: 0 6px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.searchResultItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+}
+
+.searchResultItem:hover,
+.searchResultItem.isActive {
+  border-color: #d6b39f;
+  background: #fbf5ee;
+}
+
+.searchResultText {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.searchResultText strong,
+.searchResultText span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchResultText span {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
 .appContent {
   min-width: 0;
   padding: 24px 28px 32px;
@@ -787,6 +876,102 @@ textarea:focus {
 .composePanel,
 .workPanel {
   padding: 14px;
+}
+
+.activitySurface {
+  display: grid;
+  gap: 12px;
+  max-width: 1040px;
+}
+
+.activityHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-panel);
+}
+
+.activityFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+.compactField {
+  min-width: 150px;
+  gap: 4px;
+}
+
+.compactField span {
+  font-size: 0.76rem;
+}
+
+.activityList {
+  display: grid;
+  gap: 8px;
+}
+
+.activityItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-panel);
+}
+
+.activityItemIcon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 6px;
+  background: #f1e7dc;
+  color: #7b432d;
+  font-weight: 800;
+}
+
+.activityItemMain {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.activityItemTitle,
+.activityItemMeta,
+.activityPagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.activityItemTitle {
+  min-width: 0;
+}
+
+.activityItemTitle > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activityItemMeta {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.activityPagination {
+  justify-content: flex-end;
+  padding-top: 4px;
 }
 
 .directoryList,
@@ -2343,6 +2528,12 @@ textarea:focus {
     width: 100%;
   }
 
+  .globalSearch {
+    width: 100%;
+    min-width: 0;
+    order: -1;
+  }
+
   .actorMeta {
     justify-items: start;
   }
@@ -2417,6 +2608,16 @@ textarea:focus {
   .searchField,
   .viewSwitch {
     width: 100%;
+  }
+
+  .activityHeader,
+  .activityFilters,
+  .compactField {
+    width: 100%;
+  }
+
+  .activityPagination {
+    justify-content: space-between;
   }
 
   .viewSwitch button {

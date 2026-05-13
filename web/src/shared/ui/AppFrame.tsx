@@ -4,6 +4,7 @@ import {
   CheckSquare,
   FileText,
   FolderKanban,
+  History,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -20,6 +21,7 @@ import { useState } from 'react';
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { logout } from '../../api/auth';
 import { queryKeys } from '../../api/query-keys';
+import { SearchBox } from '../../features/search/SearchBox';
 import {
   useDeleteProject,
   useDeleteWorkspace,
@@ -201,6 +203,13 @@ export function AppFrame({ children }: { children: ReactNode }) {
           </div>
 
           <div className="topBarActions">
+            {workspaceSlug ? (
+              <SearchBox
+                workspaceSlug={workspaceSlug}
+                projectSlug={projectSlug || undefined}
+                projects={projects}
+              />
+            ) : null}
             <div className="actorMeta">
               <span>{actor?.actor_kind ?? 'human'}</span>
               <strong>{actor?.role ?? 'member'}</strong>
@@ -296,6 +305,11 @@ function getContextLinks(workspaceSlug: string, projectSlug: string): ContextLin
         label: 'Файлы',
         to: `/workspaces/${workspaceSlug}/projects/${projectSlug}/assets`,
       },
+      {
+        icon: History,
+        label: 'Activity',
+        to: `/workspaces/${workspaceSlug}/projects/${projectSlug}/activity`,
+      },
     ];
   }
 
@@ -316,6 +330,11 @@ function getContextLinks(workspaceSlug: string, projectSlug: string): ContextLin
         icon: Plug,
         label: 'Интеграции',
         to: `/workspaces/${workspaceSlug}/integrations`,
+      },
+      {
+        icon: History,
+        label: 'Activity',
+        to: `/workspaces/${workspaceSlug}/activity`,
       },
     ];
   }

@@ -55,6 +55,11 @@ export const queryKeys = {
   integrationConnection: (workspaceSlug: string, connectionId: string) =>
     ['workspaces', workspaceSlug, 'integration-connections', connectionId] as const,
 
-  activity: (workspaceSlug: string, projectSlug: string) =>
-    ['workspaces', workspaceSlug, 'projects', projectSlug, 'activity'] as const,
+  workspaceActivity: (workspaceSlug: string, page: number, perPage: number) =>
+    ['workspaces', workspaceSlug, 'activity', { page, perPage }] as const,
+  projectActivity: (workspaceSlug: string, projectSlug: string, page: number, perPage: number) =>
+    ['workspaces', workspaceSlug, 'projects', projectSlug, 'activity', { page, perPage }] as const,
+
+  search: (workspaceSlug: string, projectSlug: string | undefined, query: string) =>
+    ['search', { workspaceSlug, projectSlug, query }] as const,
 } as const;

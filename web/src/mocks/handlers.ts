@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw';
-import type { AssetDetail, DocumentDetail, NoteDetail } from '../api/types';
+import type { ActivityEvent, AssetDetail, DocumentDetail, NoteDetail, SearchResult } from '../api/types';
 import {
+  mockActivityEvents,
   mockAssets,
   mockAgents,
   mockAgentCredentials,
@@ -24,6 +25,7 @@ let taskStore = [...mockTasks];
 let noteStore = [...mockNotes];
 let documentStore = [...mockDocuments];
 let assetStore = [...mockAssets];
+let activityStore = [...mockActivityEvents];
 const assetContentStore = new Map<string, string>(
   mockAssets.map((asset) => [asset.id, btoa(`Mock content for ${asset.file_name}`)]),
 );
@@ -43,6 +45,29 @@ function notFound(code: string, message: string) {
   );
 }
 
+function recordActivity(event: Omit<ActivityEvent, 'id' | 'occurred_at' | 'actor_type' | 'actor_id'>) {
+  activityStore = [
+    {
+      ...event,
+      id: crypto.randomUUID(),
+      actor_type: mockSession.actor?.actor_kind ?? 'human',
+      actor_id: mockSession.actor?.actor_id ?? null,
+      occurred_at: new Date().toISOString(),
+    },
+    ...activityStore,
+  ];
+}
+
+function paginate<T>(items: T[], request: Request) {
+  const url = new URL(request.url);
+  const page = Math.max(Number(url.searchParams.get('page') ?? '1'), 1);
+  const perPage = Math.max(Number(url.searchParams.get('per_page') ?? '20'), 1);
+  const start = (page - 1) * perPage;
+  const pagedItems = items.slice(start, start + perPage);
+  const nextCursor = start + perPage < items.length ? String(page + 1) : null;
+  return { data: { items: pagedItems, next_cursor: nextCursor }, meta: { request_id: 'mock-req' } };
+}
+
 export const handlers = [
   http.get(`${BASE}/auth/session`, () => HttpResponse.json(itemEnvelope(mockSession))),
 
@@ -51,6 +76,138 @@ export const handlers = [
   http.post(`${BASE}/auth/logout`, () =>
     HttpResponse.json(itemEnvelope({ authenticated: false }), { status: 200 })),
 
+  http.get(`${BASE}/search`, ({ request }) => {
+    const url = new URL(request.url);
+    const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
+    const workspaceSlug = url.searchParams.get('workspace_slug');
+    const projectSlug = url.searchParams.get('project_slug');
+    if (!q) {
+      return HttpResponse.json(
+        {
+          error: {
+            code: 'validation_error',
+            message: 'q must not be empty',
+            details: null,
+            request_id: 'mock-req',
+          },
+        },
+        { status: 422 },
+      );
+    }
+
+    const workspace = workspaceSlug
+      ? workspaceStore.find((item) => item.slug === workspaceSlug)
+      : undefined;
+    const project = projectSlug
+      ? projectStore.find((item) => item.slug === projectSlug && (!workspace || item.workspace_id === workspace.id))
+      : undefined;
+    const workspaceId = workspace?.id;
+    const projectId = project?.id;
+
+    const items: SearchResult[] = [
+      ...workspaceStore
+        .filter((item) => matchesSearch(q, item.name, item.slug))
+        .filter((item) => !workspaceId || item.id === workspaceId)
+        .map((item) => ({
+          kind: 'workspace',
+          id: item.id,
+          workspace_id: item.id,
+          project_id: null,
+          title: item.name,
+          summary: item.slug,
+          updated_at: item.updated_at,
+        })),
+      ...projectStore
+        .filter((item) => matchesSearch(q, item.name, item.slug))
+        .filter((item) => !workspaceId || item.workspace_id === workspaceId)
+        .filter((item) => !projectId || item.id === projectId)
+        .map((item) => ({
+          kind: 'project',
+          id: item.id,
+          workspace_id: item.workspace_id,
+          project_id: item.id,
+          title: item.name,
+          summary: item.slug,
+          updated_at: item.updated_at,
+        })),
+      ...taskStore
+        .filter((item) => matchesSearch(q, item.title, item.description_md ?? ''))
+        .filter((item) => matchesProjectScope(item.project_id, workspaceId, projectId))
+        .map((item) => ({
+          kind: 'task',
+          id: item.id,
+          workspace_id: workspaceId ?? projectStore.find((projectItem) => projectItem.id === item.project_id)?.workspace_id ?? null,
+          project_id: item.project_id,
+          title: item.title,
+          summary: item.description_md,
+          updated_at: item.updated_at,
+        })),
+      ...noteStore
+        .filter((item) => matchesSearch(q, item.title ?? '', item.body_md))
+        .filter((item) => matchesProjectScope(item.project_id, workspaceId, projectId))
+        .map((item) => ({
+          kind: 'note',
+          id: item.id,
+          workspace_id: workspaceId ?? projectStore.find((projectItem) => projectItem.id === item.project_id)?.workspace_id ?? null,
+          project_id: item.project_id,
+          title: item.title ?? item.kind,
+          summary: item.body_md,
+          updated_at: item.updated_at,
+        })),
+      ...documentStore
+        .filter((item) => matchesSearch(q, item.title, item.slug, item.body_md))
+        .filter((item) => (!workspaceId || item.workspace_id === workspaceId) && (!projectId || item.project_id === projectId))
+        .map((item) => ({
+          kind: 'document',
+          id: item.id,
+          workspace_id: item.workspace_id,
+          project_id: item.project_id,
+          title: item.title,
+          summary: item.slug,
+          updated_at: item.updated_at,
+        })),
+      ...assetStore
+        .filter((item) => matchesSearch(q, item.file_name, item.media_type))
+        .filter((item) => (!workspaceId || item.workspace_id === workspaceId) && (!projectId || item.project_id === projectId))
+        .map((item) => ({
+          kind: 'asset',
+          id: item.id,
+          workspace_id: item.workspace_id,
+          project_id: item.project_id,
+          title: item.file_name,
+          summary: item.media_type,
+          updated_at: item.created_at,
+        })),
+      ...agentStore
+        .filter((item) => matchesSearch(q, item.display_name, item.key))
+        .filter((item) => !workspaceId || item.workspace_id === workspaceId)
+        .map((item) => ({
+          kind: 'agent',
+          id: item.id,
+          workspace_id: item.workspace_id,
+          project_id: null,
+          title: item.display_name,
+          summary: item.key,
+          updated_at: item.updated_at,
+        })),
+      ...integrationConnectionStore
+        .filter((item) => matchesSearch(q, item.provider, item.status))
+        .filter((item) => (!workspaceId || item.workspace_id === workspaceId) && (!projectId || item.project_id === projectId))
+        .map((item) => ({
+          kind: 'integration_connection',
+          id: item.id,
+          workspace_id: item.workspace_id,
+          project_id: item.project_id,
+          title: item.provider,
+          summary: item.status,
+          updated_at: item.updated_at,
+        })),
+    ];
+
+    items.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    return HttpResponse.json(listEnvelope(items));
+  }),
+
   http.get(`${BASE}/workspaces`, () => HttpResponse.json(listEnvelope(workspaceStore))),
 
   http.get(`${BASE}/workspaces/:workspaceSlug`, ({ params }) => {
@@ -58,6 +215,16 @@ export const handlers = [
     return workspace
       ? HttpResponse.json(itemEnvelope(workspace))
       : notFound('workspace_not_found', 'Workspace not found');
+  }),
+
+  http.get(`${BASE}/workspaces/:workspaceSlug/activity`, ({ params, request }) => {
+    const workspace = workspaceStore.find((item) => item.slug === params.workspaceSlug);
+    const items = workspace
+      ? activityStore
+          .filter((event) => event.workspace_id === workspace.id)
+          .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
+      : [];
+    return HttpResponse.json(paginate(items, request));
   }),
 
   http.post(`${BASE}/workspaces`, async ({ request }) => {
@@ -71,6 +238,14 @@ export const handlers = [
       updated_at: now,
     };
     workspaceStore = [created, ...workspaceStore];
+    recordActivity({
+      workspace_id: created.id,
+      project_id: null,
+      entity_type: 'workspace',
+      entity_id: created.id,
+      event_type: 'workspace.create',
+      payload_json: JSON.stringify({ name: created.name }),
+    });
     return HttpResponse.json(itemEnvelope(created), { status: 201 });
   }),
 
@@ -87,6 +262,19 @@ export const handlers = [
     return project
       ? HttpResponse.json(itemEnvelope(project))
       : notFound('project_not_found', 'Project not found');
+  }),
+
+  http.get(`${BASE}/workspaces/:workspaceSlug/projects/:projectSlug/activity`, ({ params, request }) => {
+    const workspace = workspaceStore.find((item) => item.slug === params.workspaceSlug);
+    const project = projectStore.find(
+      (item) => item.slug === params.projectSlug && (!workspace || item.workspace_id === workspace.id),
+    );
+    const items = project
+      ? activityStore
+          .filter((event) => event.project_id === project.id)
+          .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
+      : [];
+    return HttpResponse.json(paginate(items, request));
   }),
 
   http.post(`${BASE}/workspaces/:workspaceSlug/projects`, async ({ request, params }) => {
@@ -106,6 +294,14 @@ export const handlers = [
       updated_at: now,
     };
     projectStore = [created, ...projectStore];
+    recordActivity({
+      workspace_id: workspace.id,
+      project_id: created.id,
+      entity_type: 'project',
+      entity_id: created.id,
+      event_type: 'project.create',
+      payload_json: JSON.stringify({ name: created.name }),
+    });
     return HttpResponse.json(itemEnvelope(created), { status: 201 });
   }),
 
@@ -135,6 +331,14 @@ export const handlers = [
       updated_at: now,
     };
     agentStore = [created, ...agentStore];
+    recordActivity({
+      workspace_id: workspace.id,
+      project_id: null,
+      entity_type: 'agent',
+      entity_id: created.id,
+      event_type: 'agent.create',
+      payload_json: JSON.stringify({ display_name: created.display_name }),
+    });
     return HttpResponse.json(itemEnvelope(created), { status: 201 });
   }),
 
@@ -273,6 +477,14 @@ export const handlers = [
       updated_at: now,
     };
     integrationConnectionStore = [created, ...integrationConnectionStore];
+    recordActivity({
+      workspace_id: workspace.id,
+      project_id: created.project_id,
+      entity_type: 'integration_connection',
+      entity_id: created.id,
+      event_type: 'integration_connection.create',
+      payload_json: JSON.stringify({ provider: created.provider, status: created.status }),
+    });
     return HttpResponse.json(itemEnvelope(created), { status: 201 });
   }),
 
@@ -355,6 +567,14 @@ export const handlers = [
       updated_at: now,
     };
     taskStore = [created, ...taskStore];
+    recordActivity({
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      entity_type: 'task',
+      entity_id: created.id,
+      event_type: 'task.create',
+      payload_json: JSON.stringify({ title: created.title }),
+    });
     return HttpResponse.json(itemEnvelope(created), { status: 201 });
   }),
 
@@ -410,6 +630,14 @@ export const handlers = [
       updated_at: now,
     };
     noteStore = [created, ...noteStore];
+    recordActivity({
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      entity_type: 'note',
+      entity_id: created.id,
+      event_type: 'note.create',
+      payload_json: JSON.stringify({ title: created.title ?? created.kind }),
+    });
     return HttpResponse.json(itemEnvelope(created), { status: 201 });
   }),
 
@@ -455,6 +683,14 @@ export const handlers = [
       updated_at: now,
     };
     documentStore = [created, ...documentStore];
+    recordActivity({
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      entity_type: 'document',
+      entity_id: created.id,
+      event_type: 'document.create',
+      payload_json: JSON.stringify({ title: created.title }),
+    });
     return HttpResponse.json(itemEnvelope(created), { status: 201 });
   }),
 
@@ -566,6 +802,14 @@ export const handlers = [
     };
     assetContentStore.set(id, body.content_base64);
     assetStore = [created, ...assetStore];
+    recordActivity({
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      entity_type: 'asset',
+      entity_id: created.id,
+      event_type: 'asset.create',
+      payload_json: JSON.stringify({ file_name: created.file_name }),
+    });
     return HttpResponse.json(itemEnvelope(created), { status: 201 });
   }),
 
@@ -627,4 +871,13 @@ function base64Size(contentBase64: string): number {
   } catch {
     return 0;
   }
+}
+
+function matchesSearch(query: string, ...values: Array<string | null | undefined>) {
+  return values.some((value) => value?.toLowerCase().includes(query));
+}
+
+function matchesProjectScope(projectId: string, workspaceId?: string, scopedProjectId?: string) {
+  const project = projectStore.find((item) => item.id === projectId);
+  return Boolean(project && (!workspaceId || project.workspace_id === workspaceId) && (!scopedProjectId || project.id === scopedProjectId));
 }

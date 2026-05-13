@@ -328,3 +328,44 @@ export interface UpdateIntegrationConnectionPayload {
   status?: IntegrationConnectionStatus;
   config_json?: unknown;
 }
+
+export interface ActivityEvent {
+  id: string;
+  workspace_id: string;
+  project_id: string | null;
+  actor_type: string;
+  actor_id: string | null;
+  entity_type: string;
+  entity_id: string | null;
+  event_type: string;
+  payload_json: string | null;
+  occurred_at: string;
+}
+
+export type SearchResultKind =
+  | 'workspace'
+  | 'project'
+  | 'task'
+  | 'task_group'
+  | 'note'
+  | 'document'
+  | 'asset'
+  | 'agent'
+  | 'integration_connection'
+  | string;
+
+export interface SearchResult {
+  kind: SearchResultKind;
+  id: string;
+  workspace_id: string | null;
+  project_id: string | null;
+  title: string;
+  summary: string | null;
+  updated_at: string;
+}
+
+export interface SearchParams {
+  q: string;
+  workspace_slug?: string;
+  project_slug?: string;
+}
