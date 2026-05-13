@@ -144,7 +144,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
               <RailLink
                 to={`/workspaces/${workspaceSlug}/members`}
                 icon={Users}
-                label="Members"
+                label="Участники"
                 expanded={railExpanded}
               />
             ) : null}
@@ -323,7 +323,7 @@ function getContextLinks(workspaceSlug: string, projectSlug: string, actorRole?:
     if (actorRole === 'owner') {
       links.push({
         icon: Users,
-        label: 'Members',
+        label: 'Участники',
         to: `/workspaces/${workspaceSlug}/projects/${projectSlug}/members`,
       });
     }
@@ -357,7 +357,7 @@ function getContextLinks(workspaceSlug: string, projectSlug: string, actorRole?:
     if (actorRole === 'owner') {
       links.splice(1, 0, {
         icon: Users,
-        label: 'Members',
+        label: 'Участники',
         to: `/workspaces/${workspaceSlug}/members`,
       });
     }

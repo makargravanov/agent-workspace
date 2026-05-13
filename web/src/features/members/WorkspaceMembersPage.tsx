@@ -1,10 +1,11 @@
-import { Plus, UserPlus, Users } from 'lucide-react';
+import { Link2, Plus, Trash2, UserPlus, Users } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import type { AccessRole, WorkspaceMember } from '../../api/types';
 import {
   useCreateWorkspaceInvite,
+  useDeleteWorkspaceInvite,
   useUpdateWorkspaceMember,
   useWorkspaceInvites,
   useWorkspaceMembers,
@@ -19,6 +20,7 @@ export function WorkspaceMembersPage() {
   const invitesQuery = useWorkspaceInvites(workspaceSlug);
   const projectsQuery = useProjects(workspaceSlug);
   const createInviteMutation = useCreateWorkspaceInvite(workspaceSlug);
+  const deleteInviteMutation = useDeleteWorkspaceInvite(workspaceSlug);
   const updateMemberMutation = useUpdateWorkspaceMember(workspaceSlug);
   const [githubLogin, setGithubLogin] = useState('');
   const [role, setRole] = useState<'editor' | 'viewer'>('editor');
@@ -30,13 +32,13 @@ export function WorkspaceMembersPage() {
   const projects = useMemo(() => projectsQuery.data?.items ?? [], [projectsQuery.data?.items]);
 
   if (membersQuery.isLoading || invitesQuery.isLoading) {
-    return <FullPageMessage title="Loading members" embedded />;
+    return <FullPageMessage title="Загрузка участников" embedded />;
   }
 
   if (membersQuery.error) {
     return (
       <FullPageMessage
-        title="Members unavailable"
+        title="Не удалось загрузить участников"
         description={getErrorMessage(membersQuery.error)}
         embedded
       />
@@ -76,7 +78,7 @@ export function WorkspaceMembersPage() {
       <section className="directoryPanel">
         <div className="compactTitle">
           <Users size={16} />
-          <h2>Workspace members</h2>
+          <h2>Участники рабочего пространства</h2>
         </div>
         {members.length > 0 ? (
           <div className="directoryList">
@@ -92,14 +94,14 @@ export function WorkspaceMembersPage() {
             ))}
           </div>
         ) : (
-          <div className="emptyPanel">No members</div>
+          <div className="emptyPanel">Участников пока нет</div>
         )}
       </section>
 
       <section className="composePanel">
         <div className="compactTitle">
           <UserPlus size={16} />
-          <h2>Invite developer</h2>
+          <h2>Пригласить участника</h2>
         </div>
         <form className="formGrid" onSubmit={handleInvite}>
           <label className="field">
@@ -111,21 +113,21 @@ export function WorkspaceMembersPage() {
             />
           </label>
           <label className="field">
-            <span>Workspace role</span>
+            <span>Роль в рабочем пространстве</span>
             <select value={role} onChange={(event) => setRole(event.target.value as 'editor' | 'viewer')}>
-              <option value="editor">editor</option>
-              <option value="viewer">viewer</option>
+              <option value="editor">Редактор</option>
+              <option value="viewer">Наблюдатель</option>
             </select>
           </label>
           <label className="field">
-            <span>Project role</span>
+            <span>Роль в проектах</span>
             <select value={projectRole} onChange={(event) => setProjectRole(event.target.value as 'editor' | 'viewer')}>
-              <option value="editor">editor</option>
-              <option value="viewer">viewer</option>
+              <option value="editor">Редактор</option>
+              <option value="viewer">Наблюдатель</option>
             </select>
           </label>
           <div className="field">
-            <span>Initial projects</span>
+            <span>Начальные проекты</span>
             <div className="checkboxStack">
               {projects.map((project) => (
                 <label key={project.id} className="checkboxLine">
@@ -142,37 +144,67 @@ export function WorkspaceMembersPage() {
           <div className="formActions">
             <button type="submit" className="primaryButton compactButton" disabled={createInviteMutation.isPending}>
               <Plus size={16} />
-              {createInviteMutation.isPending ? 'Creating...' : 'Create invite'}
+              {createInviteMutation.isPending ? 'Создание...' : 'Создать приглашение'}
             </button>
           </div>
         </form>
-        {createInviteMutation.error ? (
-          <p className="errorText">{getErrorMessage(createInviteMutation.error)}</p>
+        {createInviteMutation.error || deleteInviteMutation.error ? (
+          <p className="errorText">{getErrorMessage(createInviteMutation.error ?? deleteInviteMutation.error)}</p>
         ) : null}
       </section>
 
       <section className="directoryPanel">
         <div className="compactTitle">
           <UserPlus size={16} />
-          <h2>Invites</h2>
+          <h2>Приглашения</h2>
         </div>
         {invites.length > 0 ? (
           <div className="directoryList">
             {invites.map((invite) => (
-              <div key={invite.id} className="directoryRow">
+              <div key={invite.id} className="directoryRow directoryRowWithActions">
                 <div className="directoryRowMain">
                   <UserPlus size={18} />
                   <div>
-                    <strong>{invite.github_login ?? 'Invite link'}</strong>
-                    <span>{invite.role} / {invite.status}</span>
-                    {invite.invite_url ? <span>{invite.invite_url}</span> : null}
+                    <strong>{invite.github_login ?? 'Ссылка-приглашение'}</strong>
+                    <span>{formatInviteRole(invite.role)} / {formatInviteStatus(invite.status)}</span>
+                    {invite.invite_url ? (
+                      <a href={invite.invite_url} target="_blank" rel="noreferrer">
+                        {toAbsoluteInviteUrl(invite.invite_url)}
+                      </a>
+                    ) : null}
                   </div>
+                </div>
+                <div className="rowActions">
+                  <button
+                    type="button"
+                    className="iconButton"
+                    onClick={() => {
+                      if (invite.invite_url) {
+                        void navigator.clipboard.writeText(toAbsoluteInviteUrl(invite.invite_url));
+                      }
+                    }}
+                    title="Скопировать ссылку"
+                    aria-label={`Скопировать ссылку приглашения ${invite.github_login ?? invite.id}`}
+                    disabled={!invite.invite_url}
+                  >
+                    <Link2 size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="iconButton dangerIconButton"
+                    onClick={() => deleteInviteMutation.mutate(invite.id)}
+                    disabled={deleteInviteMutation.isPending || invite.status !== 'pending'}
+                    title="Удалить приглашение"
+                    aria-label={`Удалить приглашение ${invite.github_login ?? invite.id}`}
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="emptyPanel">No invites</div>
+          <div className="emptyPanel">Приглашений пока нет</div>
         )}
       </section>
     </section>
@@ -196,7 +228,7 @@ function MemberRow({
           <strong>{member.display_name}</strong>
           <span>{member.github_login ?? member.external_subject}</span>
         </div>
-        <span className={`statusPill status-${member.status}`}>{member.status}</span>
+        <span className={`statusPill status-${member.status}`}>{formatMemberStatus(member.status)}</span>
       </div>
       <div className="rowActions">
         <select
@@ -204,19 +236,51 @@ function MemberRow({
           onChange={(event) => onUpdate({ role: event.target.value as AccessRole })}
           disabled={disabled}
         >
-          <option value="owner">owner</option>
-          <option value="editor">editor</option>
-          <option value="viewer">viewer</option>
+          <option value="owner">Владелец</option>
+          <option value="editor">Редактор</option>
+          <option value="viewer">Наблюдатель</option>
         </select>
         <select
           value={member.status}
           onChange={(event) => onUpdate({ status: event.target.value as 'active' | 'disabled' })}
           disabled={disabled}
         >
-          <option value="active">active</option>
-          <option value="disabled">disabled</option>
+          <option value="active">Активен</option>
+          <option value="disabled">Отключен</option>
         </select>
       </div>
     </div>
   );
+}
+
+function formatInviteRole(role: 'editor' | 'viewer') {
+  return role === 'editor' ? 'редактор' : 'наблюдатель';
+}
+
+function formatInviteStatus(status: 'pending' | 'accepted' | 'revoked' | 'expired') {
+  switch (status) {
+    case 'accepted':
+      return 'принято';
+    case 'revoked':
+      return 'удалено';
+    case 'expired':
+      return 'истекло';
+    default:
+      return 'ожидает';
+  }
+}
+
+function formatMemberStatus(status: 'active' | 'invited' | 'disabled') {
+  switch (status) {
+    case 'disabled':
+      return 'отключен';
+    case 'invited':
+      return 'приглашен';
+    default:
+      return 'активен';
+  }
+}
+
+function toAbsoluteInviteUrl(inviteUrl: string) {
+  return new URL(inviteUrl, window.location.origin).toString();
 }

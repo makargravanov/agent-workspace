@@ -279,6 +279,17 @@ export const handlers = [
     return HttpResponse.json(itemEnvelope(invite), { status: 201 });
   }),
 
+  http.delete(`${BASE}/workspaces/:workspaceSlug/members/invites/:inviteId`, ({ params }) => {
+    const index = workspaceInviteStore.findIndex((invite) => invite.id === params.inviteId);
+    if (index === -1) return notFound('invite_not_found', 'Invite not found');
+    workspaceInviteStore = workspaceInviteStore.map((invite, inviteIndex) =>
+      inviteIndex === index
+        ? { ...invite, status: 'revoked', updated_at: new Date().toISOString() }
+        : invite,
+    );
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.patch(`${BASE}/workspaces/:workspaceSlug/members/:memberId`, async ({ request, params }) => {
     const index = workspaceMemberStore.findIndex((member) => member.id === params.memberId);
     if (index === -1) return notFound('member_not_found', 'Member not found');

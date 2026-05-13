@@ -32,13 +32,13 @@ export function ProjectMembersPage() {
   const candidates = workspaceMembers.filter((member) => !projectMemberIds.has(member.id));
 
   if (workspaceMembersQuery.isLoading || projectMembersQuery.isLoading) {
-    return <FullPageMessage title="Loading project members" embedded />;
+    return <FullPageMessage title="Загрузка участников проекта" embedded />;
   }
 
   if (projectMembersQuery.error || workspaceMembersQuery.error) {
     return (
       <FullPageMessage
-        title="Project members unavailable"
+        title="Не удалось загрузить участников проекта"
         description={getErrorMessage(projectMembersQuery.error ?? workspaceMembersQuery.error)}
         embedded
       />
@@ -66,7 +66,7 @@ export function ProjectMembersPage() {
       <section className="directoryPanel">
         <div className="compactTitle">
           <Users size={16} />
-          <h2>Project access</h2>
+          <h2>Участники проекта</h2>
         </div>
         {projectMembers.length > 0 ? (
           <div className="directoryList">
@@ -78,7 +78,7 @@ export function ProjectMembersPage() {
                     <strong>{member.display_name}</strong>
                     <span>{member.github_login ?? member.external_subject}</span>
                   </div>
-                  <span className={`statusPill status-${member.role}`}>{member.role}</span>
+                  <span className={`statusPill status-${member.role}`}>{member.role === 'editor' ? 'редактор' : 'наблюдатель'}</span>
                 </div>
                 <div className="rowActions">
                   <select
@@ -91,16 +91,16 @@ export function ProjectMembersPage() {
                     }
                     disabled={upsertMutation.isPending}
                   >
-                    <option value="editor">editor</option>
-                    <option value="viewer">viewer</option>
+                    <option value="editor">Редактор</option>
+                    <option value="viewer">Наблюдатель</option>
                   </select>
                   <button
                     type="button"
                     className="iconButton dangerIconButton"
                     onClick={() => deleteMutation.mutate(member.workspace_member_id)}
                     disabled={deleteMutation.isPending}
-                    title="Remove project access"
-                    aria-label={`Remove project access for ${member.display_name}`}
+                    title="Удалить доступ к проекту"
+                    aria-label={`Удалить доступ к проекту для ${member.display_name}`}
                   >
                     <Trash2 size={16} />
                   </button>
@@ -109,20 +109,20 @@ export function ProjectMembersPage() {
             ))}
           </div>
         ) : (
-          <div className="emptyPanel">No project members</div>
+          <div className="emptyPanel">У проекта пока нет участников</div>
         )}
       </section>
 
       <section className="composePanel">
         <div className="compactTitle">
           <Plus size={16} />
-          <h2>Grant access</h2>
+          <h2>Выдать доступ</h2>
         </div>
         <form className="formGrid" onSubmit={handleSubmit}>
           <label className="field">
-            <span>Member</span>
+            <span>Участник</span>
             <select value={memberId} onChange={(event) => setMemberId(event.target.value)} required>
-              <option value="">Select member</option>
+              <option value="">Выберите участника</option>
               {candidates.map((member) => (
                 <option key={member.id} value={member.id}>
                   {member.display_name}
@@ -131,16 +131,16 @@ export function ProjectMembersPage() {
             </select>
           </label>
           <label className="field">
-            <span>Role</span>
+            <span>Роль</span>
             <select value={role} onChange={(event) => setRole(event.target.value as 'editor' | 'viewer')}>
-              <option value="editor">editor</option>
-              <option value="viewer">viewer</option>
+              <option value="editor">Редактор</option>
+              <option value="viewer">Наблюдатель</option>
             </select>
           </label>
           <div className="formActions">
             <button type="submit" className="primaryButton compactButton" disabled={upsertMutation.isPending || !memberId}>
               <Plus size={16} />
-              {upsertMutation.isPending ? 'Granting...' : 'Grant'}
+              {upsertMutation.isPending ? 'Выдаем...' : 'Выдать'}
             </button>
           </div>
         </form>

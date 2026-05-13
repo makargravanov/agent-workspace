@@ -31,6 +31,10 @@ pub fn routes() -> Router<AppState> {
             get(list_workspace_invites).post(create_workspace_invite),
         )
         .route(
+            "/workspaces/{workspace_slug}/members/invites/{invite_id}",
+            axum::routing::delete(delete_workspace_invite),
+        )
+        .route(
             "/workspaces/{workspace_slug}/members/{member_id}",
             patch(update_workspace_member),
         )
@@ -123,6 +127,11 @@ pub struct UpsertProjectMemberRequest {
 #[derive(sqlx::FromRow)]
 struct OwnerCountRow {
     count: i64,
+}
+
+#[derive(sqlx::FromRow)]
+struct InviteTokenBackfillRow {
+    id: String,
 }
 
 async fn update_workspace(
@@ -250,6 +259,7 @@ async fn list_workspace_invites(
 ) -> Result<ApiResponse<ListData<WorkspaceInvite>>, ApiError> {
     let workspace = resolve_workspace(&state, &request_id, &workspace_slug).await?;
     require_owner(&state, &actor, &workspace.id, &request_id).await?;
+    ensure_pending_invite_tokens(&state, &workspace.id, &request_id).await?;
 
     let items = sqlx::query_as::<_, WorkspaceInvite>(
         "SELECT CAST(id AS TEXT) AS id,
@@ -264,7 +274,7 @@ async fn list_workspace_invites(
                 CAST(accepted_at AS TEXT) AS accepted_at,
                 CAST(created_at AS TEXT) AS created_at,
                 CAST(updated_at AS TEXT) AS updated_at,
-                NULL AS invite_url
+                '/api/v1/auth/github/start?invite=' || invite_token AS invite_url
          FROM workspace_invites
          WHERE CAST(workspace_id AS TEXT) = $1
          ORDER BY created_at DESC",
@@ -311,13 +321,13 @@ async fn create_workspace_invite(
     let insert_sql = match state.db_backend {
         DatabaseBackend::Postgres => {
             "INSERT INTO workspace_invites
-             (id, workspace_id, github_login, token_hash, role, project_access_json, status, expires_at, created_by_member_id)
-             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, $5, CAST($6 AS JSONB), 'pending', CAST($7 AS TIMESTAMPTZ), CAST($8 AS UUID))"
+             (id, workspace_id, github_login, invite_token, token_hash, role, project_access_json, status, expires_at, created_by_member_id)
+             VALUES (CAST($1 AS UUID), CAST($2 AS UUID), $3, $4, $5, $6, CAST($7 AS JSONB), 'pending', CAST($8 AS TIMESTAMPTZ), CAST($9 AS UUID))"
         }
         DatabaseBackend::Sqlite => {
             "INSERT INTO workspace_invites
-             (id, workspace_id, github_login, token_hash, role, project_access_json, status, expires_at, created_by_member_id)
-             VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)"
+             (id, workspace_id, github_login, invite_token, token_hash, role, project_access_json, status, expires_at, created_by_member_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)"
         }
     };
 
@@ -325,6 +335,7 @@ async fn create_workspace_invite(
         .bind(&invite_id)
         .bind(&workspace.id)
         .bind(github_login.as_deref())
+        .bind(&token)
         .bind(hash_secret(&token))
         .bind(&body.role)
         .bind(&project_access_json)
@@ -361,6 +372,67 @@ async fn create_workspace_invite(
             audit_event_id: None,
         },
     }))
+}
+
+async fn delete_workspace_invite(
+    State(state): State<AppState>,
+    RequestId(request_id): RequestId,
+    actor: ActorContext,
+    Path((workspace_slug, invite_id)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    let workspace = resolve_workspace(&state, &request_id, &workspace_slug).await?;
+    require_owner(&state, &actor, &workspace.id, &request_id).await?;
+
+    let current = fetch_invite(&state, &invite_id, &request_id).await?;
+    if current.workspace_id != workspace.id {
+        return Err(ApiError::not_found(&request_id, "workspace invite not found"));
+    }
+    if current.status != "pending" {
+        return Err(ApiError::validation_error(
+            &request_id,
+            "only pending invites can be deleted",
+        ));
+    }
+
+    let update_sql = match state.db_backend {
+        DatabaseBackend::Postgres => {
+            "UPDATE workspace_invites
+             SET status = 'revoked',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = CAST($1 AS UUID)"
+        }
+        DatabaseBackend::Sqlite => {
+            "UPDATE workspace_invites
+             SET status = 'revoked',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1"
+        }
+    };
+
+    sqlx::query(update_sql)
+        .bind(&invite_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, invite_id = %invite_id, "delete workspace invite failed");
+            ApiError::internal(&request_id, "failed to delete workspace invite")
+        })?;
+
+    let _ = record_audit(
+        &state.pool,
+        state.db_backend,
+        AuditEvent {
+            request_id: request_id.clone(),
+            actor,
+            action: "workspace_invite.revoked".to_string(),
+            resource_kind: "workspace_invite".to_string(),
+            resource_id: invite_id,
+            payload: None,
+        },
+    )
+    .await;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn update_workspace_member(
@@ -759,7 +831,7 @@ async fn fetch_invite(
                 CAST(accepted_at AS TEXT) AS accepted_at,
                 CAST(created_at AS TEXT) AS created_at,
                 CAST(updated_at AS TEXT) AS updated_at,
-                NULL AS invite_url
+                '/api/v1/auth/github/start?invite=' || invite_token AS invite_url
          FROM workspace_invites
          WHERE CAST(id AS TEXT) = $1",
     )
@@ -770,6 +842,60 @@ async fn fetch_invite(
         tracing::error!(error = %e, invite_id = %invite_id, "fetch invite failed");
         ApiError::internal(request_id, "failed to fetch workspace invite")
     })
+}
+
+async fn ensure_pending_invite_tokens(
+    state: &AppState,
+    workspace_id: &str,
+    request_id: &str,
+) -> Result<(), ApiError> {
+    let pending_without_token = sqlx::query_as::<_, InviteTokenBackfillRow>(
+        "SELECT CAST(id AS TEXT) AS id
+         FROM workspace_invites
+         WHERE CAST(workspace_id AS TEXT) = $1
+           AND status = 'pending'
+           AND invite_token IS NULL",
+    )
+    .bind(workspace_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, workspace_id = %workspace_id, "list pending invite tokens failed");
+        ApiError::internal(request_id, "failed to prepare workspace invites")
+    })?;
+
+    let update_sql = match state.db_backend {
+        DatabaseBackend::Postgres => {
+            "UPDATE workspace_invites
+             SET invite_token = $2,
+                 token_hash = $3,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = CAST($1 AS UUID)"
+        }
+        DatabaseBackend::Sqlite => {
+            "UPDATE workspace_invites
+             SET invite_token = $2,
+                 token_hash = $3,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1"
+        }
+    };
+
+    for invite in pending_without_token {
+        let token = format!("awinv_{}_{}", Uuid::new_v4(), Uuid::new_v4());
+        sqlx::query(update_sql)
+            .bind(&invite.id)
+            .bind(&token)
+            .bind(hash_secret(&token))
+            .execute(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, invite_id = %invite.id, "backfill invite token failed");
+                ApiError::internal(request_id, "failed to prepare workspace invites")
+            })?;
+    }
+
+    Ok(())
 }
 
 async fn fetch_workspace_member(
@@ -1086,6 +1212,67 @@ mod tests {
         assert_eq!(list.status(), StatusCode::OK);
         let list_body = body_json(list.into_body()).await;
         assert_eq!(list_body["data"]["items"].as_array().unwrap().len(), 1);
+        assert!(list_body["data"]["items"][0]["invite_url"]
+            .as_str()
+            .unwrap()
+            .contains("invite="));
+    }
+
+    #[tokio::test]
+    async fn owner_can_delete_pending_invite() {
+        let (app, owner_id, _editor_id, _workspace_id, _project_id) = setup().await;
+
+        let create = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/team/members/invites")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &owner_id)
+                    .body(Body::from(
+                        json!({
+                            "github_login": "to-delete",
+                            "role": "viewer"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let create_body = body_json(create.into_body()).await;
+        let invite_id = create_body["data"]["id"].as_str().unwrap();
+
+        let delete = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/v1/workspaces/team/members/invites/{invite_id}"))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &owner_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(delete.status(), StatusCode::NO_CONTENT);
+
+        let list = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/workspaces/team/members/invites")
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &owner_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let list_body = body_json(list.into_body()).await;
+        assert_eq!(list_body["data"]["items"][0]["status"], "revoked");
     }
 
     #[tokio::test]

@@ -1715,11 +1715,12 @@ mod tests {
             .unwrap();
         sqlx::query(
             "INSERT INTO workspace_invites
-             (id, workspace_id, github_login, token_hash, role, project_access_json, status, created_by_member_id)
-             VALUES ($1, $2, 'octotest', $3, 'editor', $4, 'pending', $5)",
+             (id, workspace_id, github_login, invite_token, token_hash, role, project_access_json, status, created_by_member_id)
+             VALUES ($1, $2, 'octotest', $3, $4, 'editor', $5, 'pending', $6)",
         )
         .bind(&invite_id)
         .bind(&workspace_id)
+        .bind("token")
         .bind(hash_secret("token"))
         .bind(json!([{ "project_id": project_id, "role": "editor" }]).to_string())
         .bind(&owner_id)

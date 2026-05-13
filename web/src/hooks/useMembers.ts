@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createWorkspaceInvite,
+  deleteWorkspaceInvite,
   deleteProjectMember,
   listProjectMembers,
   listWorkspaceInvites,
@@ -38,6 +39,16 @@ export function useCreateWorkspaceInvite(workspaceSlug: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.invites(workspaceSlug) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.members(workspaceSlug) });
+    },
+  });
+}
+
+export function useDeleteWorkspaceInvite(workspaceSlug: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (inviteId: string) => deleteWorkspaceInvite(workspaceSlug, inviteId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.invites(workspaceSlug) });
     },
   });
 }

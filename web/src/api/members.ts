@@ -47,6 +47,14 @@ export async function createWorkspaceInvite(
   return resp.data;
 }
 
+export async function deleteWorkspaceInvite(
+  workspaceSlug: string,
+  inviteId: string,
+  opts?: RequestOptions,
+): Promise<void> {
+  await apiDelete(`/workspaces/${workspaceSlug}/members/invites/${inviteId}`, opts);
+}
+
 export async function updateWorkspaceMember(
   workspaceSlug: string,
   memberId: string,
