@@ -11,7 +11,7 @@ use crate::http::{
         require_authenticated_human, require_human_workspace_role, require_project_access,
         WorkspaceRole,
     },
-    actor::ActorContext,
+    actor::{ActorContext, ActorKind},
     audit::{record_audit, AuditEvent},
     error::ApiError,
     request_id::RequestId,
@@ -62,48 +62,65 @@ async fn list_workspaces(
     request_id: RequestId,
     actor: ActorContext,
 ) -> Result<ApiResponse<ListData<domain::Workspace>>, ApiError> {
-    require_authenticated_human(&actor, &request_id.0)?;
+    let items = match actor.actor_kind {
+        ActorKind::Agent => {
+            let workspace_id = actor.workspace_id.as_deref().ok_or_else(|| {
+                ApiError::forbidden(
+                    &request_id.0,
+                    "agent credential is not bound to a workspace",
+                )
+            })?;
+            vec![get_workspace_by_id(&state, workspace_id, &request_id.0).await?]
+        }
+        ActorKind::Human => {
+            let query = if state.db_backend == crate::db::DatabaseBackend::Postgres {
+                "SELECT DISTINCT
+                     CAST(w.id AS TEXT) AS id,
+                     w.slug,
+                     w.name,
+                     CAST(w.created_at AS TEXT) AS created_at,
+                     CAST(w.updated_at AS TEXT) AS updated_at
+                 FROM workspace_members current
+                 JOIN workspace_members target
+                   ON target.external_subject = current.external_subject
+                 JOIN workspaces w ON w.id = target.workspace_id
+                 WHERE current.id = CAST($1 AS UUID)
+                   AND current.status = 'active'
+                   AND target.status = 'active'
+                 ORDER BY w.name, w.slug"
+            } else {
+                "SELECT DISTINCT
+                     CAST(w.id AS TEXT) AS id,
+                     w.slug,
+                     w.name,
+                     CAST(w.created_at AS TEXT) AS created_at,
+                     CAST(w.updated_at AS TEXT) AS updated_at
+                 FROM workspace_members current
+                 JOIN workspace_members target
+                   ON target.external_subject = current.external_subject
+                 JOIN workspaces w ON w.id = target.workspace_id
+                 WHERE current.id = $1
+                   AND current.status = 'active'
+                   AND target.status = 'active'
+                 ORDER BY w.name, w.slug"
+            };
 
-    let query = if state.db_backend == crate::db::DatabaseBackend::Postgres {
-        "SELECT DISTINCT
-             CAST(w.id AS TEXT) AS id,
-             w.slug,
-             w.name,
-             CAST(w.created_at AS TEXT) AS created_at,
-             CAST(w.updated_at AS TEXT) AS updated_at
-         FROM workspace_members current
-         JOIN workspace_members target
-           ON target.external_subject = current.external_subject
-         JOIN workspaces w ON w.id = target.workspace_id
-         WHERE current.id = CAST($1 AS UUID)
-           AND current.status = 'active'
-           AND target.status = 'active'
-         ORDER BY w.name, w.slug"
-    } else {
-        "SELECT DISTINCT
-             CAST(w.id AS TEXT) AS id,
-             w.slug,
-             w.name,
-             CAST(w.created_at AS TEXT) AS created_at,
-             CAST(w.updated_at AS TEXT) AS updated_at
-         FROM workspace_members current
-         JOIN workspace_members target
-           ON target.external_subject = current.external_subject
-         JOIN workspaces w ON w.id = target.workspace_id
-         WHERE current.id = $1
-           AND current.status = 'active'
-           AND target.status = 'active'
-         ORDER BY w.name, w.slug"
+            sqlx::query_as::<_, domain::Workspace>(query)
+                .bind(&actor.actor_id)
+                .fetch_all(&state.pool)
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = %e, actor_id = %actor.actor_id, "list_workspaces db error");
+                    ApiError::internal(&request_id.0, "failed to list workspaces")
+                })?
+        }
+        ActorKind::System => {
+            return Err(ApiError::unauthorised(
+                &request_id.0,
+                "authentication is required",
+            ));
+        }
     };
-
-    let items = sqlx::query_as::<_, domain::Workspace>(query)
-        .bind(&actor.actor_id)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, actor_id = %actor.actor_id, "list_workspaces db error");
-            ApiError::internal(&request_id.0, "failed to list workspaces")
-        })?;
 
     Ok(ApiResponse {
         data: ListData {
@@ -243,14 +260,7 @@ async fn get_workspace(
             )
         })?;
 
-    require_human_workspace_role(
-        &state.pool,
-        &actor,
-        &workspace.id,
-        WorkspaceRole::Viewer,
-        &request_id.0,
-    )
-    .await?;
+    require_workspace_discovery_access(&state, &actor, &workspace.id, &request_id.0).await?;
 
     Ok(ApiResponse {
         data: workspace,
@@ -272,14 +282,7 @@ async fn list_projects(
     Path(workspace_slug): Path<String>,
 ) -> Result<ApiResponse<ListData<domain::Project>>, ApiError> {
     let workspace = resolve_workspace(&state, &request_id, &workspace_slug).await?;
-    require_human_workspace_role(
-        &state.pool,
-        &actor,
-        &workspace.id,
-        WorkspaceRole::Viewer,
-        &request_id.0,
-    )
-    .await?;
+    require_workspace_discovery_access(&state, &actor, &workspace.id, &request_id.0).await?;
 
     let items = list_accessible_projects(&state, &actor, &workspace.id, &request_id.0).await?;
 
@@ -382,16 +385,8 @@ async fn get_project(
             )
         })?;
 
-    require_project_access(
-        &state.pool,
-        &actor,
-        &workspace.id,
-        &project.id,
-        WorkspaceRole::Viewer,
-        None,
-        &request_id.0,
-    )
-    .await?;
+    require_project_discovery_access(&state, &actor, &workspace.id, &project.id, &request_id.0)
+        .await?;
 
     Ok(ApiResponse {
         data: project,
@@ -612,12 +607,169 @@ async fn resolve_workspace(
         .ok_or_else(|| ApiError::not_found(&request_id.0, format!("workspace '{slug}' not found")))
 }
 
+async fn get_workspace_by_id(
+    state: &AppState,
+    workspace_id: &str,
+    request_id: &str,
+) -> Result<domain::Workspace, ApiError> {
+    sqlx::query_as::<_, domain::Workspace>(
+        "SELECT CAST(id AS TEXT) AS id,
+                slug,
+                name,
+                CAST(created_at AS TEXT) AS created_at,
+                CAST(updated_at AS TEXT) AS updated_at
+         FROM workspaces
+         WHERE CAST(id AS TEXT) = $1",
+    )
+    .bind(workspace_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, workspace_id = %workspace_id, "get workspace by id failed");
+        ApiError::internal(request_id, "failed to resolve workspace")
+    })?
+    .ok_or_else(|| ApiError::not_found(request_id, "workspace not found"))
+}
+
+async fn require_workspace_discovery_access(
+    state: &AppState,
+    actor: &ActorContext,
+    workspace_id: &str,
+    request_id: &str,
+) -> Result<(), ApiError> {
+    match actor.actor_kind {
+        ActorKind::Agent => {
+            if actor.workspace_id.as_deref() == Some(workspace_id) {
+                Ok(())
+            } else {
+                Err(ApiError::forbidden(
+                    request_id,
+                    "agent credential is outside the target workspace",
+                ))
+            }
+        }
+        ActorKind::Human => {
+            require_human_workspace_role(
+                &state.pool,
+                actor,
+                workspace_id,
+                WorkspaceRole::Viewer,
+                request_id,
+            )
+            .await
+        }
+        ActorKind::System => Err(ApiError::unauthorised(
+            request_id,
+            "authentication is required",
+        )),
+    }
+}
+
+async fn require_project_discovery_access(
+    state: &AppState,
+    actor: &ActorContext,
+    workspace_id: &str,
+    project_id: &str,
+    request_id: &str,
+) -> Result<(), ApiError> {
+    match actor.actor_kind {
+        ActorKind::Agent => {
+            if actor.workspace_id.as_deref() != Some(workspace_id) {
+                return Err(ApiError::forbidden(
+                    request_id,
+                    "agent credential is outside the target workspace",
+                ));
+            }
+            if let Some(bound_project_id) = actor.project_id.as_deref() {
+                if bound_project_id != project_id {
+                    return Err(ApiError::forbidden(
+                        request_id,
+                        "agent credential is outside the target project",
+                    ));
+                }
+            }
+            Ok(())
+        }
+        ActorKind::Human => {
+            require_project_access(
+                &state.pool,
+                actor,
+                workspace_id,
+                project_id,
+                WorkspaceRole::Viewer,
+                None,
+                request_id,
+            )
+            .await
+        }
+        ActorKind::System => Err(ApiError::unauthorised(
+            request_id,
+            "authentication is required",
+        )),
+    }
+}
+
 async fn list_accessible_projects(
     state: &AppState,
     actor: &ActorContext,
     workspace_id: &str,
     request_id: &str,
 ) -> Result<Vec<domain::Project>, ApiError> {
+    if actor.actor_kind == ActorKind::Agent {
+        if actor.workspace_id.as_deref() != Some(workspace_id) {
+            return Err(ApiError::forbidden(
+                request_id,
+                "agent credential is outside the target workspace",
+            ));
+        }
+
+        if let Some(project_id) = actor.project_id.as_deref() {
+            return sqlx::query_as::<_, domain::Project>(
+                "SELECT CAST(id AS TEXT) AS id,
+                        CAST(workspace_id AS TEXT) AS workspace_id,
+                        slug,
+                        name,
+                        status,
+                        CAST(created_at AS TEXT) AS created_at,
+                        CAST(updated_at AS TEXT) AS updated_at
+                 FROM projects
+                 WHERE CAST(workspace_id AS TEXT) = $1
+                   AND CAST(id AS TEXT) = $2
+                   AND status != 'archived'
+                 ORDER BY created_at DESC",
+            )
+            .bind(workspace_id)
+            .bind(project_id)
+            .fetch_all(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, workspace_id = %workspace_id, "list agent project failed");
+                ApiError::internal(request_id, "failed to list projects")
+            });
+        }
+
+        return sqlx::query_as::<_, domain::Project>(
+            "SELECT CAST(id AS TEXT) AS id,
+                    CAST(workspace_id AS TEXT) AS workspace_id,
+                    slug,
+                    name,
+                    status,
+                    CAST(created_at AS TEXT) AS created_at,
+                    CAST(updated_at AS TEXT) AS updated_at
+             FROM projects
+             WHERE CAST(workspace_id AS TEXT) = $1
+               AND status != 'archived'
+             ORDER BY created_at DESC",
+        )
+        .bind(workspace_id)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, workspace_id = %workspace_id, "list agent projects failed");
+            ApiError::internal(request_id, "failed to list projects")
+        });
+    }
+
     let role = sqlx::query_as::<_, RoleRow>(
         "SELECT target.role AS role
          FROM workspace_members current
@@ -1161,6 +1313,74 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn agent_can_discover_bound_workspace_and_project_without_scopes() {
+        let state = AppState::new(any_test_pool().await, crate::db::DatabaseBackend::Sqlite);
+        let workspace_id = Uuid::new_v4().to_string();
+        let first_project_id = Uuid::new_v4().to_string();
+        let second_project_id = Uuid::new_v4().to_string();
+
+        sqlx::query("INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $3)")
+            .bind(&workspace_id)
+            .bind("agent-ws")
+            .bind("Agent Workspace")
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        for (project_id, slug, name) in [
+            (&first_project_id, "first-project", "First Project"),
+            (&second_project_id, "second-project", "Second Project"),
+        ] {
+            sqlx::query(
+                "INSERT INTO projects (id, workspace_id, slug, name, status) VALUES ($1, $2, $3, $4, 'active')",
+            )
+            .bind(project_id)
+            .bind(&workspace_id)
+            .bind(slug)
+            .bind(name)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        }
+
+        let router = routes().with_state(state);
+        let workspaces = router
+            .clone()
+            .oneshot(
+                Request::get("/workspaces")
+                    .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "agent")
+                    .header(ACTOR_ID, "agent-1")
+                    .header("x-workspace-id", &workspace_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(workspaces.status(), StatusCode::OK);
+        let workspaces_body: serde_json::Value = parse_body(workspaces).await;
+        assert_eq!(workspaces_body["data"]["items"][0]["slug"], "agent-ws");
+
+        let projects = router
+            .oneshot(
+                Request::get("/workspaces/agent-ws/projects")
+                    .header(RID, TEST_RID)
+                    .header(ACTOR_KIND, "agent")
+                    .header(ACTOR_ID, "agent-1")
+                    .header("x-workspace-id", &workspace_id)
+                    .header("x-project-id", &second_project_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(projects.status(), StatusCode::OK);
+        let projects_body: serde_json::Value = parse_body(projects).await;
+        let items = projects_body["data"]["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["slug"], "second-project");
     }
 
     #[tokio::test]

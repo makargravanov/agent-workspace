@@ -217,7 +217,7 @@ async fn create_task_group(
         &workspace_id,
         &project_id,
         WorkspaceRole::Editor,
-        None,
+        Some("task_groups:write"),
         &request_id,
     )
     .await?;
@@ -330,7 +330,7 @@ async fn update_task_group(
         &workspace_id,
         &project_id,
         WorkspaceRole::Editor,
-        None,
+        Some("task_groups:write"),
         &request_id,
     )
     .await?;
@@ -422,7 +422,7 @@ async fn delete_task_group(
         &workspace_id,
         &project_id,
         WorkspaceRole::Editor,
-        None,
+        Some("task_groups:write"),
         &request_id,
     )
     .await?;

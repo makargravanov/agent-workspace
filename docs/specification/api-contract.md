@@ -232,10 +232,10 @@
 | Method | Path | Назначение | Доступ | Приоритет |
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups` | список групп задач | human, agent `task_groups:read` | mvp |
-| `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups` | создать группу задач | human | mvp |
+| `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups` | создать группу задач | human, agent `task_groups:write` | mvp |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups/{groupId}` | получить группу задач | human, agent `task_groups:read` | mvp |
-| `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups/{groupId}` | обновить metadata группы | human | mvp |
-| `DELETE` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups/{groupId}` | удалить группу задач | human | mvp |
+| `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups/{groupId}` | обновить metadata группы | human, agent `task_groups:write` | mvp |
+| `DELETE` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/task-groups/{groupId}` | удалить группу задач | human, agent `task_groups:write` | mvp |
 
 ### 7.5 Tasks and dependencies
 
@@ -264,8 +264,10 @@
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/notes/{noteId}` | получить заметку | human, agent `notes:read` | mvp |
 | `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/notes/{noteId}` | обновить заметку | human, agent `notes:write` | foundation |
 | `DELETE` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/notes/{noteId}` | удалить заметку | human, agent `notes:write` | foundation |
-| `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/assets/uploads` | зарегистрировать upload asset | human | mvp |
+| `POST` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/assets` | зарегистрировать asset | human, agent `assets:write` | mvp |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/assets/{assetId}` | получить metadata asset | human, agent `assets:read` | mvp |
+| `PATCH` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/assets/{assetId}` | обновить asset | human, agent `assets:write` | mvp |
+| `DELETE` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/assets/{assetId}` | удалить asset | human, agent `assets:write` | mvp |
 | `GET` | `/api/v1/workspaces/{workspaceSlug}/projects/{projectSlug}/assets/{assetId}/download` | скачать asset | human, agent `assets:read` | mvp |
 
 ### 7.7 Search and activity
@@ -342,8 +344,13 @@
     "tasks:read",
     "tasks:write",
     "tasks:write_status",
+    "task_groups:read",
+    "task_groups:write",
     "documents:read",
     "documents:write",
+    "assets:read",
+    "assets:write",
+    "notes:read",
     "notes:write"
   ],
   "expires_at": null
@@ -360,9 +367,11 @@
 | `tasks:write` | `POST`, `PATCH`, `DELETE` tasks and `PATCH` task status |
 | `tasks:write_status` | `PATCH` task status |
 | `task_groups:read` | `GET` task group list/detail |
+| `task_groups:write` | `POST`, `PATCH`, `DELETE` task groups |
 | `documents:read` | `GET` documents |
 | `documents:write` | `POST`, `PATCH`, `DELETE`, move documents |
 | `assets:read` | `GET` asset metadata/download |
+| `assets:write` | `POST`, `PATCH`, `DELETE` assets |
 | `notes:read` | `GET` notes |
 | `notes:write` | `POST`, `PATCH`, `DELETE` notes |
 | `audit:read_recent` | `GET` project activity |

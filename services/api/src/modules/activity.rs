@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     http::{
-        access::{require_human_workspace_role, WorkspaceRole},
-        actor::ActorContext,
+        access::{require_human_workspace_role, require_project_access, WorkspaceRole},
+        actor::{ActorContext, ActorKind},
         error::ApiError,
         pagination::PaginationParams,
         request_id::RequestId,
@@ -72,6 +72,49 @@ async fn resolve_project(
     .map(|row| row.map(|(id,)| id))
 }
 
+async fn require_workspace_activity_access(
+    state: &AppState,
+    actor: &ActorContext,
+    workspace_id: &str,
+    request_id: &str,
+) -> Result<(), ApiError> {
+    match actor.actor_kind {
+        ActorKind::Human => {
+            require_human_workspace_role(
+                &state.pool,
+                actor,
+                workspace_id,
+                WorkspaceRole::Viewer,
+                request_id,
+            )
+            .await
+        }
+        ActorKind::Agent => {
+            if actor.workspace_id.as_deref() != Some(workspace_id) {
+                return Err(ApiError::forbidden(
+                    request_id,
+                    "agent credential is outside the target workspace",
+                ));
+            }
+            if !actor
+                .scopes
+                .iter()
+                .any(|scope| scope == "audit:read_recent")
+            {
+                return Err(ApiError::forbidden(
+                    request_id,
+                    "missing required scope 'audit:read_recent'",
+                ));
+            }
+            Ok(())
+        }
+        ActorKind::System => Err(ApiError::unauthorised(
+            request_id,
+            "authentication is required",
+        )),
+    }
+}
+
 async fn list_workspace_activity(
     State(state): State<AppState>,
     RequestId(request_id): RequestId,
@@ -84,14 +127,7 @@ async fn list_workspace_activity(
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
         .ok_or_else(|| ApiError::not_found(&request_id, "workspace not found"))?;
 
-    require_human_workspace_role(
-        &state.pool,
-        &actor,
-        &workspace_id,
-        WorkspaceRole::Viewer,
-        &request_id,
-    )
-    .await?;
+    require_workspace_activity_access(&state, &actor, &workspace_id, &request_id).await?;
 
     let total_sql = "SELECT COUNT(*) FROM audit_events WHERE CAST(workspace_id AS TEXT) = $1";
     let (total,): (i64,) = sqlx::query_as(total_sql)
@@ -172,11 +208,13 @@ async fn list_project_activity(
         .map_err(|e| ApiError::internal(&request_id, e.to_string()))?
         .ok_or_else(|| ApiError::not_found(&request_id, "project not found"))?;
 
-    require_human_workspace_role(
+    require_project_access(
         &state.pool,
         &actor,
         &workspace_id,
+        &project_id,
         WorkspaceRole::Viewer,
+        Some("audit:read_recent"),
         &request_id,
     )
     .await?;
@@ -382,6 +420,59 @@ mod tests {
             .unwrap()
             .iter()
             .any(|item| item["actor_github_login"].as_str() == Some("makargravanov")));
+    }
+
+    #[tokio::test]
+    async fn agent_with_audit_scope_can_read_project_activity() {
+        let (app, pool, member_id, workspace_id) = setup("owner").await;
+        let (project_id,): (String,) = sqlx::query_as(
+            "SELECT CAST(id AS TEXT) FROM projects WHERE slug = $1 AND CAST(workspace_id AS TEXT) = $2",
+        )
+        .bind(PROJECT_SLUG)
+        .bind(&workspace_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let create = app
+            .clone()
+            .oneshot(json_request(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/workspaces/{WS_SLUG}/projects/{PROJECT_SLUG}/documents"
+                    ))
+                    .header("x-actor-kind", "human")
+                    .header("x-actor-id", &member_id)
+                    .header("x-workspace-id", &workspace_id),
+                &json!({
+                    "slug": "agent-audit",
+                    "title": "Agent Audit",
+                    "body_md": "# Audit"
+                }),
+            ))
+            .await
+            .unwrap();
+        let _ = assert_status_with_body(create, StatusCode::CREATED).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{WS_SLUG}/projects/{PROJECT_SLUG}/activity"
+                    ))
+                    .header("x-actor-kind", "agent")
+                    .header("x-actor-id", "agent-1")
+                    .header("x-workspace-id", &workspace_id)
+                    .header("x-project-id", &project_id)
+                    .header("x-actor-scopes", "audit:read_recent")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = assert_status_with_body(response, StatusCode::OK).await;
+        assert!(!body["data"]["items"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
