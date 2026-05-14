@@ -25,6 +25,11 @@ export interface ApiErrorBody {
   request_id: string;
 }
 
+export interface ChangePollResponse {
+  changed: boolean;
+  cursor: string;
+}
+
 export interface PaginationParams {
   cursor?: string;
   limit?: number;

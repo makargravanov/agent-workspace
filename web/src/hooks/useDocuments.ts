@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import {
   createDocument,
   deleteDocument,
@@ -7,6 +8,7 @@ import {
   moveDocument,
   repairDocumentCycles,
   updateDocument,
+  waitForDocumentChanges,
 } from '../api/documents';
 import { queryKeys } from '../api/query-keys';
 import type {
@@ -16,6 +18,83 @@ import type {
   PaginationParams,
   UpdateDocumentPayload,
 } from '../api/types';
+
+const POLL_RETRY_DELAY_MS = 2_000;
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function delay(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+
+    const timeoutId = window.setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        window.clearTimeout(timeoutId);
+        reject(new DOMException('Aborted', 'AbortError'));
+      },
+      { once: true },
+    );
+  });
+}
+
+export function useDocumentsLongPolling(
+  workspaceSlug: string,
+  projectSlug: string,
+  enabled: boolean,
+  activeDocumentId?: string,
+) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!enabled || workspaceSlug.length === 0 || projectSlug.length === 0) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function poll() {
+      let cursor: string | undefined;
+
+      while (!controller.signal.aborted) {
+        try {
+          const result = await waitForDocumentChanges(workspaceSlug, projectSlug, cursor, {
+            signal: controller.signal,
+          });
+          cursor = result.cursor;
+
+          if (result.changed) {
+            await queryClient.invalidateQueries({
+              queryKey: queryKeys.documents(workspaceSlug, projectSlug),
+            });
+            if (activeDocumentId && activeDocumentId.length > 0) {
+              await queryClient.invalidateQueries({
+                queryKey: queryKeys.document(workspaceSlug, projectSlug, activeDocumentId),
+              });
+            }
+          }
+        } catch (error) {
+          if (isAbortError(error)) {
+            return;
+          }
+          await delay(POLL_RETRY_DELAY_MS, controller.signal).catch(() => undefined);
+        }
+      }
+    }
+
+    void poll();
+
+    return () => {
+      controller.abort();
+    };
+  }, [activeDocumentId, enabled, projectSlug, queryClient, workspaceSlug]);
+}
 
 export function useDocuments(
   workspaceSlug: string,

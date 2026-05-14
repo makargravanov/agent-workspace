@@ -8,6 +8,7 @@ import {
   useDeleteTask,
   useMoveTaskStatus,
   useTasks,
+  useTasksLongPolling,
   useUpdateTaskStatus,
 } from '../../hooks/useTasks';
 import { getErrorMessage } from '../../shared/lib/errors';
@@ -31,6 +32,7 @@ export function TasksPage() {
   const { workspaceSlug = '', projectSlug = '' } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const tasksQuery = useTasks(workspaceSlug, projectSlug);
+  useTasksLongPolling(workspaceSlug, projectSlug, true);
   const createTaskMutation = useCreateTask(workspaceSlug, projectSlug);
   const deleteTaskMutation = useDeleteTask(workspaceSlug, projectSlug);
   const title = useFieldState('');

@@ -25,6 +25,7 @@ use crate::{
         access::{require_project_access, require_project_access_any_agent_scope, WorkspaceRole},
         actor::ActorContext,
         audit::{record_audit, AuditEvent},
+        changes::{wait_for_project_change, ChangePollQuery, ChangePollResponse},
         error::ApiError,
         request_id::RequestId,
         response::{ApiResponse, Created, ListData, ResponseMeta},
@@ -174,6 +175,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/tasks",
             get(list_tasks).post(create_task),
+        )
+        .route(
+            "/workspaces/{workspace_slug}/projects/{project_slug}/tasks/changes",
+            get(wait_task_changes),
         )
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/tasks/{task_id}",
@@ -352,6 +357,51 @@ async fn list_tasks(
 
     Ok(ApiResponse {
         data: ListData { items, next_cursor },
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
+    })
+}
+
+async fn wait_task_changes(
+    State(state): State<AppState>,
+    Path((workspace_slug, project_slug)): Path<(String, String)>,
+    Query(query): Query<ChangePollQuery>,
+    RequestId(request_id): RequestId,
+    actor: ActorContext,
+) -> Result<ApiResponse<ChangePollResponse>, ApiError> {
+    let project = resolve_project(&state.pool, &workspace_slug, &project_slug)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, workspace = %workspace_slug, project = %project_slug, "db error resolving project");
+            ApiError::internal(&request_id, "database error")
+        })?
+        .ok_or_else(|| ApiError::not_found(&request_id, "project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &project.workspace_id,
+        &project.id,
+        WorkspaceRole::Viewer,
+        Some("tasks:read"),
+        &request_id,
+    )
+    .await?;
+
+    let data = wait_for_project_change(
+        &state,
+        query,
+        &project.workspace_id,
+        &project.id,
+        "tasks",
+        &request_id,
+    )
+    .await?;
+
+    Ok(ApiResponse {
+        data,
         meta: ResponseMeta {
             request_id,
             audit_event_id: None,
@@ -615,6 +665,10 @@ async fn update_task(
     )
     .await;
 
+    state
+        .change_notifier
+        .publish_project_change(&project.workspace_id, &project.id, "tasks");
+
     Ok(ApiResponse {
         data: TaskDetail::from(task),
         meta: ResponseMeta {
@@ -706,7 +760,7 @@ async fn create_task(
 
     sqlx::query(insert_task_sql)
         .bind(new_id.clone())
-        .bind(project.workspace_id)
+        .bind(&project.workspace_id)
         .bind(project.id.clone())
         .bind(body.group_id)
         .bind(body.parent_task_id)
@@ -746,6 +800,10 @@ async fn create_task(
         },
     )
     .await;
+
+    state
+        .change_notifier
+        .publish_project_change(&project.workspace_id, &project.id, "tasks");
 
     Ok(Created(ApiResponse {
         data: TaskDetail::from(task),
@@ -840,6 +898,10 @@ async fn update_task_status(
     )
     .await;
 
+    state
+        .change_notifier
+        .publish_project_change(&project.workspace_id, &project.id, "tasks");
+
     Ok(ApiResponse {
         data: TaskDetail::from(task),
         meta: ResponseMeta {
@@ -932,6 +994,10 @@ async fn delete_task(
         },
     )
     .await;
+
+    state
+        .change_notifier
+        .publish_project_change(&project.workspace_id, &project.id, "tasks");
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1077,9 +1143,12 @@ mod route_tests {
     use crate::app::build_router;
     use crate::testing::{any_test_pool, fixtures};
     use axum::{
-        body::Body,
+        body::{to_bytes, Body},
         http::{Request, StatusCode},
     };
+    use serde_json::json;
+    use std::time::Duration;
+    use tokio::time::sleep;
     use tower::ServiceExt;
 
     const RID: &str = "x-request-id";
@@ -1204,6 +1273,140 @@ mod route_tests {
             parent_task_id,
             child_task_id,
         )
+    }
+
+    async fn response_json(response: axum::response::Response) -> serde_json::Value {
+        serde_json::from_slice(
+            &to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .expect("response body"),
+        )
+        .expect("json response")
+    }
+
+    #[tokio::test]
+    async fn task_changes_initial_cursor_and_timeout() {
+        let (
+            _state,
+            router,
+            member_id,
+            _workspace_id,
+            _project_id,
+            _parent_task_id,
+            _child_task_id,
+        ) = setup().await;
+
+        let initial = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/tasks/changes",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG
+                    ))
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(initial.status(), StatusCode::OK);
+        let initial_body = response_json(initial).await;
+        assert_eq!(initial_body["data"]["changed"], false);
+        let cursor = initial_body["data"]["cursor"].as_str().unwrap();
+
+        let timeout = router
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/tasks/changes?cursor={cursor}&timeout_ms=1000",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG
+                    ))
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(timeout.status(), StatusCode::OK);
+        let timeout_body = response_json(timeout).await;
+        assert_eq!(timeout_body["data"]["changed"], false);
+    }
+
+    #[tokio::test]
+    async fn task_changes_wait_wakes_after_create() {
+        let (
+            _state,
+            router,
+            member_id,
+            _workspace_id,
+            _project_id,
+            _parent_task_id,
+            _child_task_id,
+        ) = setup().await;
+
+        let initial = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/tasks/changes",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG
+                    ))
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let initial_body = response_json(initial).await;
+        let cursor = initial_body["data"]["cursor"].as_str().unwrap().to_string();
+
+        let waiter = router.clone().oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/workspaces/{}/projects/{}/tasks/changes?cursor={cursor}&timeout_ms=30000",
+                    fixtures::WORKSPACE_SLUG,
+                    fixtures::PROJECT_SLUG
+                ))
+                .header(ACTOR_KIND, "human")
+                .header(ACTOR_ID, &member_id)
+                .body(Body::empty())
+                .unwrap(),
+        );
+
+        sleep(Duration::from_millis(50)).await;
+
+        let create = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/workspaces/{}/projects/{}/tasks",
+                        fixtures::WORKSPACE_SLUG,
+                        fixtures::PROJECT_SLUG
+                    ))
+                    .header(RID, TEST_RID)
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::from(json!({ "title": "Wake waiter" }).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create.status(), StatusCode::CREATED);
+
+        let waited = waiter.await.unwrap();
+        assert_eq!(waited.status(), StatusCode::OK);
+        let waited_body = response_json(waited).await;
+        assert_eq!(waited_body["data"]["changed"], true);
     }
 
     #[tokio::test]

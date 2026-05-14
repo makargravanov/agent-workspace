@@ -19,6 +19,8 @@ import {
 
 const BASE = '/api/v1';
 
+const mockPollDelay = () => new Promise((resolve) => globalThis.setTimeout(resolve, 1_000));
+
 let workspaceStore = [...mockWorkspaces];
 let projectStore = [...mockProjects];
 let workspaceMemberStore = [...mockWorkspaceMembers];
@@ -656,6 +658,11 @@ export const handlers = [
     return HttpResponse.json(listEnvelope(items));
   }),
 
+  http.get(`${BASE}/workspaces/:ws/projects/:proj/tasks/changes`, async () => {
+    await mockPollDelay();
+    return HttpResponse.json(itemEnvelope({ changed: false, cursor: String(Date.now()) }));
+  }),
+
   http.get(`${BASE}/workspaces/:ws/projects/:proj/tasks/:taskId`, ({ params }) => {
     const task = taskStore.find((item) => item.id === params.taskId);
     return task
@@ -767,6 +774,11 @@ export const handlers = [
     const project = projectStore.find((item) => item.slug === params.proj);
     const items = project ? documentStore.filter((document) => document.project_id === project.id) : [];
     return HttpResponse.json(listEnvelope(items));
+  }),
+
+  http.get(`${BASE}/workspaces/:ws/projects/:proj/documents/changes`, async () => {
+    await mockPollDelay();
+    return HttpResponse.json(itemEnvelope({ changed: false, cursor: String(Date.now()) }));
   }),
 
   http.get(`${BASE}/workspaces/:ws/projects/:proj/documents/:documentId`, ({ params }) => {

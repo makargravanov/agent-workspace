@@ -33,6 +33,7 @@ import {
   useDeleteDocument,
   useDocument,
   useDocuments,
+  useDocumentsLongPolling,
   useMoveDocument,
   useRepairDocumentCycles,
   useUpdateDocument,
@@ -72,6 +73,7 @@ export function DocumentsIndexPage() {
   const { workspaceSlug = '', projectSlug = '' } = useParams();
   const sessionQuery = useSession();
   const documentsQuery = useDocuments(workspaceSlug, projectSlug);
+  useDocumentsLongPolling(workspaceSlug, projectSlug, true);
   const moveDocumentMutation = useMoveDocument(workspaceSlug, projectSlug);
   const repairCyclesMutation = useRepairDocumentCycles(workspaceSlug, projectSlug);
   const canEdit = canEditDocuments(sessionQuery.data?.actor?.role);
@@ -287,6 +289,7 @@ export function DocumentViewPage() {
   const sessionQuery = useSession();
   const documentsQuery = useDocuments(workspaceSlug, projectSlug);
   const documentQuery = useDocument(workspaceSlug, projectSlug, documentId);
+  useDocumentsLongPolling(workspaceSlug, projectSlug, true, documentId);
   const canEdit = canEditDocuments(sessionQuery.data?.actor?.role);
   const documents = useMemo(() => documentsQuery.data?.items ?? [], [documentsQuery.data?.items]);
   const lineRange = useMemo(() => parseLineHash(location.hash), [location.hash]);
@@ -446,6 +449,7 @@ export function EditDocumentPage() {
   const { workspaceSlug = '', projectSlug = '', documentId = '' } = useParams();
   const sessionQuery = useSession();
   const documentQuery = useDocument(workspaceSlug, projectSlug, documentId);
+  useDocumentsLongPolling(workspaceSlug, projectSlug, true, documentId);
   const updateDocumentMutation = useUpdateDocument(workspaceSlug, projectSlug, documentId);
   const deleteDocumentMutation = useDeleteDocument(workspaceSlug, projectSlug);
   const canEdit = canEditDocuments(sessionQuery.data?.actor?.role);

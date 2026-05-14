@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -13,6 +13,7 @@ use crate::http::{
     access::{require_project_access, WorkspaceRole},
     actor::ActorContext,
     audit::{record_audit, AuditEvent},
+    changes::{wait_for_project_change, ChangePollQuery, ChangePollResponse},
     error::ApiError,
     request_id::RequestId,
     response::{ApiResponse, Created, ListData, ResponseMeta},
@@ -82,6 +83,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/documents",
             get(list_documents).post(create_document),
+        )
+        .route(
+            "/workspaces/{workspace_slug}/projects/{project_slug}/documents/changes",
+            get(wait_document_changes),
         )
         .route(
             "/workspaces/{workspace_slug}/projects/{project_slug}/documents/repair-cycles",
@@ -415,6 +420,49 @@ async fn list_documents(
     })
 }
 
+async fn wait_document_changes(
+    State(state): State<AppState>,
+    RequestId(request_id): RequestId,
+    actor: ActorContext,
+    Path((workspace_slug, project_slug)): Path<(String, String)>,
+    Query(query): Query<ChangePollQuery>,
+) -> Result<ApiResponse<ChangePollResponse>, ApiError> {
+    let ids = resolve_project(&state.pool, &workspace_slug, &project_slug)
+        .await
+        .map_err(|e| ApiError::internal(&request_id, e.to_string()))?;
+    let (workspace_id, project_id) =
+        ids.ok_or_else(|| ApiError::not_found(&request_id, "workspace or project not found"))?;
+
+    require_project_access(
+        &state.pool,
+        &actor,
+        &workspace_id,
+        &project_id,
+        WorkspaceRole::Viewer,
+        Some("documents:read"),
+        &request_id,
+    )
+    .await?;
+
+    let data = wait_for_project_change(
+        &state,
+        query,
+        &workspace_id,
+        &project_id,
+        "documents",
+        &request_id,
+    )
+    .await?;
+
+    Ok(ApiResponse {
+        data,
+        meta: ResponseMeta {
+            request_id,
+            audit_event_id: None,
+        },
+    })
+}
+
 async fn create_document(
     State(state): State<AppState>,
     RequestId(request_id): RequestId,
@@ -516,6 +564,10 @@ async fn create_document(
         },
     )
     .await;
+
+    state
+        .change_notifier
+        .publish_project_change(&workspace_id, &project_id, "documents");
 
     Ok(Created(ApiResponse {
         data: document,
@@ -713,6 +765,10 @@ async fn update_document(
     )
     .await;
 
+    state
+        .change_notifier
+        .publish_project_change(&workspace_id, &project_id, "documents");
+
     Ok(ApiResponse {
         data: updated,
         meta: ResponseMeta {
@@ -793,6 +849,10 @@ async fn delete_document(
         },
     )
     .await;
+
+    state
+        .change_notifier
+        .publish_project_change(&workspace_id, &project_id, "documents");
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -875,7 +935,7 @@ async fn repair_document_cycles(
             actor,
             action: "document.cycles_repaired".to_string(),
             resource_kind: "project".to_string(),
-            resource_id: project_id,
+            resource_id: project_id.clone(),
             payload: Some(serde_json::json!({
                 "repaired_document_ids": repaired_document_ids,
                 "cycle_group_count": cycle_groups.len()
@@ -883,6 +943,10 @@ async fn repair_document_cycles(
         },
     )
     .await;
+
+    state
+        .change_notifier
+        .publish_project_change(&workspace_id, &project_id, "documents");
 
     Ok(ApiResponse {
         data: RepairDocumentCyclesResponse {
@@ -1051,6 +1115,10 @@ async fn move_document(
     )
     .await;
 
+    state
+        .change_notifier
+        .publish_project_change(&workspace_id, &project_id, "documents");
+
     Ok(ApiResponse {
         data: updated,
         meta: ResponseMeta {
@@ -1064,10 +1132,12 @@ async fn move_document(
 mod tests {
     use super::*;
     use axum::{
-        body::Body,
+        body::{to_bytes, Body},
         http::{Request, StatusCode},
     };
     use serde_json::json;
+    use std::time::Duration;
+    use tokio::time::sleep;
     use tower::ServiceExt;
 
     use crate::{
@@ -1127,6 +1197,100 @@ mod tests {
             workspace_id,
             project_id,
         )
+    }
+
+    async fn response_json(response: axum::response::Response) -> serde_json::Value {
+        serde_json::from_slice(
+            &to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .expect("response body"),
+        )
+        .expect("json response")
+    }
+
+    #[tokio::test]
+    async fn document_changes_wait_wakes_after_update() {
+        let (router, member_id, _workspace_id, _project_id) = setup().await;
+        let create_resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/documents")
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::from(
+                        json!({
+                            "slug": "long-poll-doc",
+                            "title": "Long Poll Doc",
+                            "body_md": "# Long Poll"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_resp.status(), StatusCode::CREATED);
+        let created = response_json(create_resp).await;
+        let document_id = created["data"]["id"].as_str().unwrap().to_string();
+
+        let initial = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/workspaces/dev-workspace/projects/main-project/documents/changes")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let initial_body = response_json(initial).await;
+        let cursor = initial_body["data"]["cursor"].as_str().unwrap().to_string();
+
+        let waiter = router.clone().oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/workspaces/dev-workspace/projects/main-project/documents/changes?cursor={cursor}&timeout_ms=30000"
+                ))
+                .header(ACTOR_KIND, "human")
+                .header(ACTOR_ID, &member_id)
+                .body(Body::empty())
+                .unwrap(),
+        );
+
+        sleep(Duration::from_millis(50)).await;
+
+        let update_resp = router
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!(
+                        "/api/v1/workspaces/dev-workspace/projects/main-project/documents/{document_id}"
+                    ))
+                    .header("content-type", "application/json")
+                    .header(ACTOR_KIND, "human")
+                    .header(ACTOR_ID, &member_id)
+                    .body(Body::from(
+                        json!({
+                            "version": 1,
+                            "title": "Long Poll Doc Updated"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(update_resp.status(), StatusCode::OK);
+
+        let waited = waiter.await.unwrap();
+        assert_eq!(waited.status(), StatusCode::OK);
+        let waited_body = response_json(waited).await;
+        assert_eq!(waited_body["data"]["changed"], true);
     }
 
     #[tokio::test]

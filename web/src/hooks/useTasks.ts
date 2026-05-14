@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { queryKeys } from '../api/query-keys';
 import {
   deleteTask,
@@ -10,6 +11,7 @@ import {
   listTasks,
   patchTaskGroup,
   updateTaskStatus,
+  waitForTaskChanges,
   type ListTasksParams,
 } from '../api/tasks';
 import type {
@@ -22,6 +24,82 @@ import type {
 } from '../api/types';
 
 // ─── Task groups ──────────────────────────────────────────────────────────────
+
+const POLL_RETRY_DELAY_MS = 2_000;
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function delay(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+
+    const timeoutId = window.setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        window.clearTimeout(timeoutId);
+        reject(new DOMException('Aborted', 'AbortError'));
+      },
+      { once: true },
+    );
+  });
+}
+
+export function useTasksLongPolling(
+  workspaceSlug: string,
+  projectSlug: string,
+  enabled: boolean,
+) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!enabled || workspaceSlug.length === 0 || projectSlug.length === 0) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function poll() {
+      let cursor: string | undefined;
+
+      while (!controller.signal.aborted) {
+        try {
+          const result = await waitForTaskChanges(workspaceSlug, projectSlug, cursor, {
+            signal: controller.signal,
+          });
+          cursor = result.cursor;
+
+          if (result.changed) {
+            await Promise.all([
+              queryClient.invalidateQueries({
+                queryKey: queryKeys.tasks(workspaceSlug, projectSlug),
+              }),
+              queryClient.invalidateQueries({
+                queryKey: queryKeys.taskGroups(workspaceSlug, projectSlug),
+              }),
+            ]);
+          }
+        } catch (error) {
+          if (isAbortError(error)) {
+            return;
+          }
+          await delay(POLL_RETRY_DELAY_MS, controller.signal).catch(() => undefined);
+        }
+      }
+    }
+
+    void poll();
+
+    return () => {
+      controller.abort();
+    };
+  }, [enabled, projectSlug, queryClient, workspaceSlug]);
+}
 
 export function useTaskGroups(workspaceSlug: string, projectSlug: string) {
   return useQuery({

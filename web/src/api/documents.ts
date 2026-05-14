@@ -2,6 +2,7 @@ import { apiDelete, apiGet, apiPatch, apiPost, type RequestOptions } from './cli
 import type {
   ApiListResponse,
   ApiResponse,
+  ChangePollResponse,
   CreateDocumentPayload,
   DocumentDetail,
   PaginationParams,
@@ -21,6 +22,20 @@ export async function listDocuments(
   const resp = await apiGet<ApiListResponse<DocumentDetail>>(
     documentsBase(workspaceSlug, projectSlug),
     pagination,
+    opts,
+  );
+  return resp.data;
+}
+
+export async function waitForDocumentChanges(
+  workspaceSlug: string,
+  projectSlug: string,
+  cursor?: string,
+  opts?: RequestOptions,
+): Promise<ChangePollResponse> {
+  const resp = await apiGet<ApiResponse<ChangePollResponse>>(
+    `${documentsBase(workspaceSlug, projectSlug)}/changes`,
+    { cursor, timeout_ms: 25_000 },
     opts,
   );
   return resp.data;

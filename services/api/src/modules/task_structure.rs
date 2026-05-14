@@ -265,6 +265,10 @@ async fn create_task_group(
     )
     .await;
 
+    state
+        .change_notifier
+        .publish_project_change(&workspace_id, &project_id, "tasks");
+
     Ok(Created(ApiResponse {
         data: group,
         meta: ResponseMeta {
@@ -395,6 +399,10 @@ async fn update_task_group(
     )
     .await;
 
+    state
+        .change_notifier
+        .publish_project_change(&workspace_id, &project_id, "tasks");
+
     Ok(ApiResponse {
         data: updated,
         meta: ResponseMeta {
@@ -475,6 +483,10 @@ async fn delete_task_group(
         },
     )
     .await;
+
+    state
+        .change_notifier
+        .publish_project_change(&workspace_id, &project_id, "tasks");
 
     Ok(StatusCode::NO_CONTENT)
 }
