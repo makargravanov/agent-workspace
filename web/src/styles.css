@@ -1461,11 +1461,27 @@ textarea:focus {
 
 .quickTaskFooter {
   display: flex;
-  align-items: center;
+  align-items: end;
   gap: 8px;
 }
 
-.quickTaskFooter select {
+.quickTaskPriorityField {
+  flex: 1 1 150px;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.quickTaskPriorityField span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #5b5146;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.quickTaskPriorityField select {
   min-width: 0;
 }
 

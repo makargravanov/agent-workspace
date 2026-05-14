@@ -1,4 +1,4 @@
-import { Kanban, Plus, Search, Table2, Trash2 } from 'lucide-react';
+import { Flag, Kanban, Plus, Search, Table2, Trash2 } from 'lucide-react';
 import type { DragEvent, FormEvent, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
@@ -296,16 +296,23 @@ function QuickCreateTask({
         placeholder="Описание"
       />
       <div className="quickTaskFooter">
-        <select
-          value={priority.value}
-          onChange={(event) => priority.setValue(event.target.value as TaskPriority)}
-        >
-          {TASK_PRIORITIES.map((item) => (
-            <option key={item} value={item}>
-              {priorityLabel(item)}
-            </option>
-          ))}
-        </select>
+        <label className="quickTaskPriorityField">
+          <span>
+            <Flag size={14} />
+            Приоритет
+          </span>
+          <select
+            value={priority.value}
+            onChange={(event) => priority.setValue(event.target.value as TaskPriority)}
+            aria-label="Приоритет задачи"
+          >
+            {TASK_PRIORITIES.map((item) => (
+              <option key={item} value={item}>
+                {priorityLabel(item)}
+              </option>
+            ))}
+          </select>
+        </label>
         <button type="submit" className="primaryButton compactButton" disabled={isPending}>
           <Plus size={15} />
           <span>{isPending ? '...' : 'Создать'}</span>
